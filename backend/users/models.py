@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class Usuario(models.Model):
@@ -41,3 +42,24 @@ class UsuarioClub(models.Model):
     class Meta:
         managed = False
         db_table = 'usuario_club'
+
+
+class PasswordResetToken(models.Model):
+    user = models.ForeignKey(
+        Usuario,
+        models.CASCADE,
+        related_name='password_reset_tokens',
+    )
+    # Se almacena la huella SHA-256, nunca el token que viaja en el enlace.
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'password_reset_token'
+        ordering = ['-created_at']
+
+    @property
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
