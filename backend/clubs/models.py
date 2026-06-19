@@ -7,6 +7,8 @@ class Club(models.Model):
     slug = models.CharField(max_length=255, unique=True)
     descripcion = models.TextField(null=True, blank=True)
     logo_url = models.TextField(null=True, blank=True)
+    direccion = models.TextField(null=True, blank=True)
+    colores = models.CharField(max_length=255, null=True, blank=True)
     ciudad = models.CharField(max_length=255, null=True, blank=True)
     pais = models.CharField(max_length=255, null=True, blank=True)
     email_contacto = models.EmailField(max_length=254, null=True, blank=True)
