@@ -113,6 +113,22 @@ class EquipoViewSet(viewsets.ModelViewSet):
     queryset = Equipo.objects.all()
     serializer_class = EquipoSerializer
 
+    @action(detail=True, methods=['patch'])
+    def desactivar(self, request, pk=None):
+        equipo = self.get_object()
+        equipo.activo = False
+        equipo.actualizado_en = timezone.now()
+        equipo.save(update_fields=['activo', 'actualizado_en'])
+        return Response(self.get_serializer(equipo).data)
+
+    @action(detail=True, methods=['patch'])
+    def activar(self, request, pk=None):
+        equipo = self.get_object()
+        equipo.activo = True
+        equipo.actualizado_en = timezone.now()
+        equipo.save(update_fields=['activo', 'actualizado_en'])
+        return Response(self.get_serializer(equipo).data)
+
     def destroy(self, request, *args, **kwargs):
         equipo = self.get_object()
         equipo.activo = False
@@ -124,6 +140,22 @@ class EquipoViewSet(viewsets.ModelViewSet):
 class JugadorViewSet(viewsets.ModelViewSet):
     queryset = Jugador.objects.all()
     serializer_class = JugadorSerializer
+
+    @action(detail=True, methods=['patch'])
+    def desactivar(self, request, pk=None):
+        jugador = self.get_object()
+        jugador.estado = 'INACTIVO'
+        jugador.actualizado_en = timezone.now()
+        jugador.save(update_fields=['estado', 'actualizado_en'])
+        return Response(self.get_serializer(jugador).data)
+
+    @action(detail=True, methods=['patch'])
+    def activar(self, request, pk=None):
+        jugador = self.get_object()
+        jugador.estado = 'ACTIVO'
+        jugador.actualizado_en = timezone.now()
+        jugador.save(update_fields=['estado', 'actualizado_en'])
+        return Response(self.get_serializer(jugador).data)
 
     def destroy(self, request, *args, **kwargs):
         jugador = self.get_object()

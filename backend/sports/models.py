@@ -82,6 +82,7 @@ class Jugador(models.Model):
     nombre = models.CharField(max_length=255)
     apellido = models.CharField(max_length=255)
     fecha_nacimiento = models.DateField()
+    categoria = models.CharField(max_length=100, null=True, blank=True)
     dni = models.CharField(max_length=100, unique=True, null=True, blank=True)
     foto_url = models.TextField(null=True, blank=True)
     posicion_principal = models.CharField(max_length=100, null=True, blank=True)

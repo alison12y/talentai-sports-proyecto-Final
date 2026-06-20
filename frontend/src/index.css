@@ -2369,3 +2369,140 @@ p {
   .saas-form-actions { grid-template-columns: 1fr; }
   .saas-form-actions .saas-btn-secondary { order: 2; }
 }
+
+/* Gestión de equipos */
+.teams-page { max-width: 1280px; }
+.teams-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.team-card-meta strong { overflow-wrap: anywhere; }
+.teams-page .clubs-form-group select {
+  width: 100%;
+  height: 50px;
+  padding: 0 38px 0 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  color: #0f172a;
+  background: #fff;
+  outline: 0;
+}
+.teams-page .clubs-form-group select:focus { border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, .1); }
+.teams-page .clubs-form-group select:disabled { color: #94a3b8; background: #f8fafc; cursor: not-allowed; }
+.teams-form-note {
+  padding: 11px 13px;
+  border: 1px solid #fde68a;
+  border-radius: 11px;
+  color: #92400e;
+  background: #fffbeb;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+@media (max-width: 1050px) {
+  .teams-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .teams-grid { grid-template-columns: 1fr; }
+}
+
+/* Gestión de jugadores */
+.players-page { max-width: 1280px; }
+.players-toolbar {
+  display: grid;
+  grid-template-columns: 1.2fr repeat(3, minmax(140px, .7fr));
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+.players-toolbar label,
+.player-form .clubs-form-group {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 850;
+}
+.players-toolbar select,
+.players-page .clubs-form-group select {
+  width: 100%;
+  height: 46px;
+  padding: 0 38px 0 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 11px;
+  color: #0f172a;
+  background: #fff;
+  outline: 0;
+}
+.players-toolbar select:focus,
+.players-page .clubs-form-group select:focus { border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, .1); }
+.players-page select:disabled { color: #94a3b8; background: #f8fafc; cursor: not-allowed; }
+.players-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.player-card-meta strong { overflow-wrap: anywhere; }
+.player-modal { width: min(880px, 100%); }
+.player-form { display: grid; gap: 18px; }
+.player-form fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #dbe3ee;
+  border-radius: 15px;
+  background: #f8fafc;
+}
+.player-form legend {
+  padding: 0 8px;
+  color: #1d4ed8;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 900;
+}
+.player-field-full,
+.player-section-note { grid-column: 1 / -1; }
+.player-section-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #475569;
+  background: #eef2ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.player-form input[readonly],
+.player-form input:disabled { color: #64748b; background: #eef2f7; }
+.player-detail-modal { width: min(700px, 100%); }
+.player-detail-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+  padding: 20px;
+  border: 1px solid #bfdbfe;
+  border-radius: 17px;
+  background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+}
+.player-detail-hero > div { min-width: 0; }
+.player-detail-hero > div > span { color: #2563eb; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+.player-detail-hero h3 { margin: 6px 0; color: #0f172a; font-size: 27px; overflow-wrap: anywhere; }
+.player-detail-hero p { margin: 0; color: #64748b; }
+.player-detail-grid dd { overflow-wrap: anywhere; }
+
+@media (max-width: 1050px) {
+  .players-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .players-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .players-toolbar,
+  .players-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .player-form fieldset { grid-template-columns: 1fr; padding: 15px; }
+  .player-field-full,
+  .player-section-note { grid-column: auto; }
+  .player-detail-hero { flex-direction: column; }
+}
