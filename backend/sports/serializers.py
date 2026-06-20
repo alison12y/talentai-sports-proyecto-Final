@@ -5,7 +5,55 @@ from rest_framework import serializers
 
 from clubs.models import Club
 from users.models import Usuario
-from .models import Equipo, Jugador, JugadorEquipo, TutorJugador
+from .models import CategoriaDeportiva, Equipo, Jugador, JugadorEquipo, TutorJugador
+
+
+class CategoriaDeportivaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CategoriaDeportiva
+        fields = (
+            'id', 'club', 'nombre', 'descripcion', 'edad_minima',
+            'edad_maxima', 'activo', 'predefinida', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'club', 'predefinida', 'created_at', 'updated_at')
+
+    def validate_nombre(self, value):
+        nombre = value.strip()
+        if not nombre:
+            raise serializers.ValidationError('El nombre de la categoría es obligatorio.')
+
+        club = self.context.get('club') or getattr(self.instance, 'club', None)
+        if club:
+            queryset = CategoriaDeportiva.objects.filter(
+                club=club,
+                nombre__iexact=nombre,
+            )
+            if self.instance:
+                queryset = queryset.exclude(pk=self.instance.pk)
+            if queryset.exists():
+                raise serializers.ValidationError(
+                    'Ya existe una categoría con ese nombre en el club.'
+                )
+        return nombre
+
+    def validate(self, attrs):
+        edad_minima = attrs.get(
+            'edad_minima',
+            getattr(self.instance, 'edad_minima', None),
+        )
+        edad_maxima = attrs.get(
+            'edad_maxima',
+            getattr(self.instance, 'edad_maxima', None),
+        )
+        if (
+            edad_minima is not None
+            and edad_maxima is not None
+            and edad_minima > edad_maxima
+        ):
+            raise serializers.ValidationError({
+                'edad_maxima': 'La edad máxima debe ser mayor o igual a la edad mínima.'
+            })
+        return attrs
 
 
 class EquipoSerializer(serializers.ModelSerializer):

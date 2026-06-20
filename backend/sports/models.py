@@ -1,4 +1,35 @@
 from django.db import models
+from django.db.models.functions import Lower
+
+
+class CategoriaDeportiva(models.Model):
+    club = models.ForeignKey(
+        'clubs.Club',
+        models.CASCADE,
+        related_name='categorias_deportivas',
+    )
+    nombre = models.CharField(max_length=100)
+    descripcion = models.TextField(null=True, blank=True)
+    edad_minima = models.PositiveSmallIntegerField(null=True, blank=True)
+    edad_maxima = models.PositiveSmallIntegerField(null=True, blank=True)
+    activo = models.BooleanField(default=True)
+    predefinida = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'categoria_deportiva'
+        ordering = ['nombre']
+        constraints = [
+            models.UniqueConstraint(
+                Lower('nombre'),
+                'club',
+                name='unique_category_name_per_club_ci',
+            ),
+        ]
+
+    def __str__(self):
+        return self.nombre
 
 
 class Equipo(models.Model):

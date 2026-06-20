@@ -1,4 +1,64 @@
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
+
+
+class PlanSaaS(models.Model):
+    codigo = models.CharField(max_length=20, unique=True)
+    nombre = models.CharField(max_length=100, unique=True)
+    descripcion = models.TextField()
+    precio_mensual = models.DecimalField(max_digits=10, decimal_places=2)
+    limite_jugadores = models.PositiveIntegerField(null=True, blank=True)
+    limite_equipos = models.PositiveIntegerField(null=True, blank=True)
+    incluye_ia = models.BooleanField(default=False)
+    incluye_reportes = models.BooleanField(default=False)
+    soporte = models.CharField(max_length=100)
+    caracteristicas = models.JSONField(default=list, blank=True)
+    activo = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'plan_saas'
+        ordering = ['precio_mensual', 'id']
+
+    def __str__(self):
+        return self.nombre
+
+
+class ClubPlan(models.Model):
+    class Estado(models.TextChoices):
+        ACTIVA = 'ACTIVA', 'Activa'
+        CANCELADA = 'CANCELADA', 'Cancelada'
+        VENCIDA = 'VENCIDA', 'Vencida'
+
+    club = models.ForeignKey(
+        'clubs.Club',
+        models.DO_NOTHING,
+        related_name='suscripciones_saas',
+    )
+    plan = models.ForeignKey(
+        PlanSaaS,
+        models.PROTECT,
+        related_name='suscripciones',
+    )
+    activo = models.BooleanField(default=True)
+    fecha_inicio = models.DateTimeField(default=timezone.now)
+    fecha_fin = models.DateTimeField(null=True, blank=True)
+    estado = models.CharField(max_length=20, choices=Estado.choices, default=Estado.ACTIVA)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'club_plan'
+        ordering = ['-fecha_inicio']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['club'],
+                condition=Q(activo=True),
+                name='unique_active_plan_per_club',
+            ),
+        ]
 
 
 class Cuota(models.Model):

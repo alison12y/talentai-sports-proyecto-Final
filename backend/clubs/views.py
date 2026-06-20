@@ -4,8 +4,15 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from payments.models import ClubPlan
+from payments.serializers import (
+    ClubPlanSerializer,
+    PlanSaaSSerializer,
+    SeleccionarPlanSaaSSerializer,
+)
+
 from .models import Club
-from .serializers import ClubConfigSerializer, ClubSerializer, SeleccionarPlanSerializer
+from .serializers import ClubConfigSerializer, ClubSerializer
 
 
 class ClubViewSet(viewsets.ModelViewSet):
@@ -47,8 +54,8 @@ class ClubViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path='configurar')
     def configurar(self, request, pk=None):
-        # TODO: validar que solo el administrador del club pueda configurar estos datos
-        # cuando la autenticación por token y roles esté disponible.
+        # TODO: validar que solo el administrador del club pueda modificar la
+        # configuración de su club.
         club = self.get_object()
         serializer = ClubConfigSerializer(club, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -57,15 +64,30 @@ class ClubViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='seleccionar-plan')
     def seleccionar_plan(self, request, pk=None):
+        # TODO: validar que solo el administrador del club pueda seleccionar
+        # el plan SaaS de su club.
         club = self.get_object()
-        serializer = SeleccionarPlanSerializer(data=request.data)
+        serializer = SeleccionarPlanSaaSSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        club.plan = serializer.validated_data['plan']
-        club.actualizado_en = timezone.now()
-        club.save(update_fields=['plan', 'actualizado_en'])
+        suscripcion = serializer.save(club=club)
 
         return Response({
             'message': 'Plan seleccionado correctamente',
             'club': ClubSerializer(club).data,
+            'plan': PlanSaaSSerializer(suscripcion.plan).data,
+            'suscripcion': ClubPlanSerializer(suscripcion).data,
+        })
+
+    @action(detail=True, methods=['get'], url_path='plan-actual')
+    def plan_actual(self, request, pk=None):
+        club = self.get_object()
+        suscripcion = (
+            ClubPlan.objects.filter(club=club, activo=True)
+            .select_related('plan')
+            .first()
+        )
+        return Response({
+            'club_id': str(club.pk),
+            'plan': PlanSaaSSerializer(suscripcion.plan).data if suscripcion else None,
+            'suscripcion': ClubPlanSerializer(suscripcion).data if suscripcion else None,
         })

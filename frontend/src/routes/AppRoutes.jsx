@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import MainLayout from '../layouts/MainLayout'
+import CategoriesPage from '../pages/CategoriesPage'
 import ClubsPage from '../pages/ClubsPage'
 import DashboardPage from '../pages/DashboardPage'
 import LoginPage from '../pages/LoginPage'
@@ -14,6 +15,7 @@ function AppRoutes() {
       <Route element={<MainLayout />}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/clubes" element={<ClubsPage />} />
+        <Route path="/categorias" element={<CategoriesPage />} />
         <Route path="/equipos" element={<TeamsPage />} />
         <Route path="/jugadores" element={<PlayersPage />} />
       </Route>

@@ -1295,6 +1295,243 @@ p {
   .saas-form-actions .saas-btn-secondary { order: 2; }
 }
 
+/* Gestión de categorías deportivas */
+.categories-page {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.categories-header { align-items: flex-start; }
+
+.categories-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.categories-toolbar label {
+  display: grid;
+  gap: 7px;
+  width: min(380px, 100%);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.categories-toolbar select {
+  width: 100%;
+  height: 46px;
+  padding: 0 42px 0 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 11px;
+  color: #0f172a;
+  background: #fff;
+  outline: 0;
+}
+
+.categories-toolbar select:focus { border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, .1); }
+
+.categories-filter {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #f1f5f9;
+}
+
+.categories-filter button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  color: #64748b;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.categories-filter button.is-active { color: #1d4ed8; background: #fff; box-shadow: 0 2px 8px rgba(15, 23, 42, .08); }
+.categories-filter button:disabled { cursor: not-allowed; opacity: .55; }
+
+.categories-quick-card,
+.categories-list-card {
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.categories-quick-card {
+  display: grid;
+  grid-template-columns: minmax(220px, .65fr) minmax(0, 1.35fr);
+  align-items: center;
+  gap: 24px;
+  background: linear-gradient(135deg, #eff6ff, #f8fafc 58%, #f0fdf4);
+}
+
+.categories-quick-card h2,
+.categories-list-heading h2 { margin: 0 0 5px; color: #0f172a; font-size: 21px; }
+.categories-quick-card p,
+.categories-list-heading p { margin: 0; color: #64748b; font-size: 13px; }
+
+.categories-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.categories-chips button {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #bfdbfe;
+  border-radius: 99px;
+  color: #1d4ed8;
+  background: rgba(255, 255, 255, .86);
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+
+.categories-chips button:hover { transform: translateY(-1px); box-shadow: 0 7px 15px rgba(37, 99, 235, .12); }
+.categories-chips button:disabled { cursor: not-allowed; opacity: .5; transform: none; }
+.categories-list-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+
+.categories-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 15px;
+}
+
+.category-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: linear-gradient(155deg, #fff, #f8fafc);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .06);
+}
+
+.category-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.category-card-kicker { color: #2563eb; font-size: 10px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.category-card h3 { margin: 5px 0 0; color: #0f172a; font-size: 21px; overflow-wrap: anywhere; }
+.category-card > p { min-height: 42px; margin: 14px 0; color: #64748b; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+
+.category-card-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.category-card-meta > span {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border-radius: 10px;
+  color: #64748b;
+  background: #f1f5f9;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.category-card-meta strong { color: #0f172a; font-size: 14px; }
+.category-card-meta .category-predefined-badge { grid-column: 1 / -1; display: inline-flex; width: fit-content; color: #5b21b6; background: #ede9fe; }
+
+.category-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: auto;
+}
+
+.category-actions button {
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.category-actions button.is-warning { border-color: #fed7aa; color: #c2410c; background: #fff7ed; }
+.category-actions button.is-success { border-color: #bbf7d0; color: #15803d; background: #f0fdf4; }
+.category-actions button.is-danger { border-color: #fecaca; color: #b91c1c; background: #fef2f2; }
+.category-actions button:disabled { cursor: wait; opacity: .6; }
+
+.categories-empty {
+  display: grid;
+  min-height: 260px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 30px;
+  color: #475569;
+  text-align: center;
+}
+
+.categories-empty p { margin: 0 0 6px; color: #64748b; }
+.categories-empty-icon { display: grid; width: 54px; height: 54px; place-items: center; border-radius: 16px; color: #fff; background: linear-gradient(135deg, #2563eb, #16a34a); font-size: 20px; font-weight: 900; }
+.category-modal { width: min(660px, 100%); }
+.category-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; }
+.category-field-full { grid-column: 1 / -1; }
+.category-form textarea { width: 100%; padding: 13px 14px; border: 1px solid #cbd5e1; border-radius: 12px; color: #0f172a; background: #fff; outline: 0; resize: vertical; font: inherit; font-weight: 500; }
+.category-form textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, .1); }
+.category-detail-modal { width: min(590px, 100%); }
+
+.category-detail-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 19px;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+}
+
+.category-detail-hero span:first-child { color: #2563eb; font-size: 11px; font-weight: 850; text-transform: uppercase; }
+.category-detail-hero h3 { margin: 6px 0 0; color: #0f172a; font-size: 26px; }
+.category-detail-description { margin: 18px 0; color: #475569; line-height: 1.6; }
+.category-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.category-detail-grid > div { padding: 13px; border: 1px solid #e2e8f0; border-radius: 11px; background: #f8fafc; }
+.category-detail-grid dt { margin-bottom: 4px; color: #64748b; font-size: 10px; font-weight: 850; text-transform: uppercase; }
+.category-detail-grid dd { margin: 0; color: #0f172a; font-size: 14px; font-weight: 750; }
+.category-detail-actions { margin-top: 20px; }
+
+@media (max-width: 1050px) {
+  .categories-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .categories-header,
+  .categories-toolbar,
+  .categories-quick-card { align-items: stretch; grid-template-columns: 1fr; flex-direction: column; }
+  .categories-toolbar label { width: 100%; }
+  .categories-filter { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+  .categories-chips { justify-content: flex-start; }
+  .categories-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .categories-quick-card,
+  .categories-list-card { padding: 17px; }
+  .categories-filter button { padding: 0 7px; font-size: 11px; }
+  .category-form,
+  .category-detail-grid { grid-template-columns: 1fr; }
+  .category-field-full { grid-column: auto; }
+  .category-actions { grid-template-columns: 1fr; }
+  .category-detail-hero { align-items: flex-start; flex-direction: column; }
+}
+
 /* Gestión de clubes */
 .clubs-page { max-width: 1280px; }
 .clubs-page-header { align-items: center; }
@@ -1847,4 +2084,288 @@ p {
   .club-detail-actions button {
     width: 100%;
   }
+}
+
+/* Selección de plan SaaS */
+.club-detail-plan {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -8px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid #c7d2fe;
+  border-radius: 13px;
+  color: #475569;
+  background: #eef2ff;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.club-detail-plan strong { color: #3730a3; font-size: 15px; }
+.club-detail-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.club-detail-actions button { width: 100%; }
+.club-plan-button { color: #5b21b6; background: #ede9fe; }
+
+.club-plans-modal {
+  width: min(1080px, 100%);
+}
+
+.club-plans-context {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.club-plans-context > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 13px;
+  background: #f8fafc;
+}
+
+.club-plans-context span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.club-plans-context strong {
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.club-plans-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.club-plan-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 20px;
+  border: 1px solid #dbe3ee;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .07);
+  transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+
+.club-plan-card.is-recommended {
+  border-color: #a5b4fc;
+  background: linear-gradient(180deg, #f5f3ff, #fff 34%);
+}
+
+.club-plan-card.is-current {
+  border: 2px solid #16a34a;
+  box-shadow: 0 14px 32px rgba(22, 163, 74, .14);
+}
+
+.club-plan-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.club-plan-card h3 { margin: 4px 0 0; color: #0f172a; font-size: 23px; }
+
+.club-plan-recommended,
+.club-plan-current-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 5px 8px;
+  border-radius: 99px;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.club-plan-recommended { color: #5b21b6; background: #ede9fe; }
+.club-plan-current-badge { color: #15803d; background: #dcfce7; }
+
+.club-plan-description {
+  min-height: 42px;
+  margin: 12px 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.club-plan-price {
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #0f172a;
+  font-size: 25px;
+  font-weight: 900;
+}
+
+.club-plan-summary,
+.club-plan-features {
+  display: grid;
+  gap: 8px;
+  margin: 15px 0 0;
+  padding: 0;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.4;
+  list-style: none;
+}
+
+.club-plan-summary li,
+.club-plan-features li { position: relative; padding-left: 19px; }
+.club-plan-summary li::before,
+.club-plan-features li::before { position: absolute; left: 0; color: #16a34a; content: '✓'; font-weight: 900; }
+
+.club-plan-features {
+  margin-bottom: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed #cbd5e1;
+  color: #64748b;
+}
+
+.club-plan-card > button {
+  width: 100%;
+  min-height: 44px;
+  margin-top: auto;
+}
+
+.club-plan-card > button:disabled { cursor: default; opacity: .72; }
+.club-plans-loading { min-height: 300px; }
+.club-plans-footer { display: flex; justify-content: flex-end; margin-top: 20px; }
+
+@media (max-width: 900px) {
+  .club-plans-grid { grid-template-columns: 1fr; }
+  .club-plan-description { min-height: 0; }
+}
+
+@media (max-width: 520px) {
+  .club-plans-context { grid-template-columns: 1fr; }
+  .club-plan-card { padding: 18px 16px; }
+  .club-plan-card-top { align-items: flex-start; flex-direction: column-reverse; }
+  .club-plans-footer button { width: 100%; }
+  .club-detail-plan { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .club-detail-actions { grid-template-columns: 1fr; }
+}
+
+/* Onboarding SaaS completo */
+.saas-centered-main .saas-onboarding-card.is-plans-step {
+  width: min(1120px, 100%);
+  max-width: 1120px;
+}
+
+.saas-field-error {
+  display: block;
+  margin-top: 5px;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.saas-plan-error {
+  margin: -8px 0 18px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: #fef2f2;
+}
+
+.saas-plans-notice {
+  margin-bottom: 16px;
+  padding: 11px 14px;
+  border: 1px solid #bae6fd;
+  border-radius: 11px;
+  color: #075985;
+  background: #f0f9ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.saas-plans-loading {
+  display: grid;
+  min-height: 280px;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  color: #475569;
+}
+
+.saas-plans-loading .saas-spinner {
+  width: 30px;
+  height: 30px;
+  border-color: #bfdbfe;
+  border-top-color: #2563eb;
+}
+
+.saas-onboarding-plans {
+  margin: 0 0 24px;
+}
+
+.saas-onboarding-plans .club-plan-card > .saas-btn-secondary {
+  border: 1px solid #86efac;
+  color: #166534;
+  background: #dcfce7;
+}
+
+.saas-onboarding-plans .club-plan-card > .saas-btn-submit {
+  margin-top: auto;
+}
+
+.saas-activation-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.saas-activation-summary > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #eff6ff, #f8fafc);
+}
+
+.saas-activation-summary span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.saas-activation-summary strong {
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 17px;
+}
+
+.saas-activation-summary small {
+  overflow-wrap: anywhere;
+  color: #64748b;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .saas-onboarding-main { padding: 28px 10px 40px; }
+  .saas-field-grid,
+  .saas-activation-summary { grid-template-columns: 1fr; }
+  .saas-payment-tabs { grid-template-columns: 1fr; }
+  .saas-form-actions { grid-template-columns: 1fr; }
+  .saas-form-actions .saas-btn-secondary { order: 2; }
 }

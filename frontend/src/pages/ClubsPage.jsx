@@ -4,16 +4,18 @@ import api from '../api/axios'
 
 const emptyForm = { nombre: '', direccion: '', telefono: '', email_contacto: '', colores: '', logo_url: '' }
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const imagePathPattern = /\.(jpe?g|png|gif|webp|svg|avif)$/i
+const imageReferencePattern = /\.(jpe?g|png|webp|svg)(?:$|[?#&])/i
 
-const isValidLogoUrl = (value) => {
+const isValidHttpUrl = (value) => {
   try {
     const url = new URL(value)
-    return ['http:', 'https:'].includes(url.protocol) && imagePathPattern.test(url.pathname)
+    return ['http:', 'https:'].includes(url.protocol)
   } catch {
     return false
   }
 }
+
+const looksLikeImageUrl = (value) => isValidHttpUrl(value) && imageReferencePattern.test(value)
 
 function ClubLogo({ club, large = false }) {
   const [imageFailed, setImageFailed] = useState(false)
@@ -33,19 +35,29 @@ function ClubsPage() {
   const [editingClub, setEditingClub] = useState(null)
   const [configuringClub, setConfiguringClub] = useState(null)
   const [detailClub, setDetailClub] = useState(null)
+  const [planClub, setPlanClub] = useState(null)
+  const [plans, setPlans] = useState([])
+  const [detailPlan, setDetailPlan] = useState(null)
+  const [currentPlan, setCurrentPlan] = useState(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isConfigOpen, setIsConfigOpen] = useState(false)
+  const [isPlanOpen, setIsPlanOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const [isPlansLoading, setIsPlansLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isConfigSaving, setIsConfigSaving] = useState(false)
+  const [selectingPlanId, setSelectingPlanId] = useState(null)
   const [configLogoFailed, setConfigLogoFailed] = useState(false)
   const [pendingAction, setPendingAction] = useState('')
   const [pageError, setPageError] = useState('')
   const [detailError, setDetailError] = useState('')
+  const [detailPlanError, setDetailPlanError] = useState('')
   const [formError, setFormError] = useState('')
   const [configError, setConfigError] = useState('')
+  const [planError, setPlanError] = useState('')
+  const [planSuccess, setPlanSuccess] = useState('')
   const [success, setSuccess] = useState('')
 
   useEffect(() => {
@@ -100,14 +112,59 @@ function ClubsPage() {
   }
 
   const openDetail = async (club) => {
-    setDetailClub(club); setDetailError(''); setIsDetailOpen(true); setIsDetailLoading(true)
+    setDetailClub(club); setDetailPlan(null); setDetailError(''); setDetailPlanError(''); setIsDetailOpen(true); setIsDetailLoading(true)
+    const [detailResult, planResult] = await Promise.allSettled([
+      api.get(`/clubes/${club.id}/`),
+      api.get(`/clubes/${club.id}/plan-actual/`),
+    ])
+    if (detailResult.status === 'fulfilled') setDetailClub(detailResult.value.data)
+    else setDetailError('No pudimos cargar el detalle del club.')
+    if (planResult.status === 'fulfilled') setDetailPlan(planResult.value.data.plan || null)
+    else setDetailPlanError('No pudimos consultar el plan actual.')
+    setIsDetailLoading(false)
+  }
+
+  const openPlanSelector = async (club) => {
+    setPlanClub(club); setPlans([]); setCurrentPlan(null); setPlanError(''); setPlanSuccess('')
+    setIsDetailOpen(false); setIsPlanOpen(true); setIsPlansLoading(true)
     try {
-      const { data } = await api.get(`/clubes/${club.id}/`)
-      setDetailClub(data)
+      const [plansResponse, currentResponse] = await Promise.all([
+        api.get('/planes/'),
+        api.get(`/clubes/${club.id}/plan-actual/`),
+      ])
+      setPlans(Array.isArray(plansResponse.data) ? plansResponse.data : plansResponse.data.results || [])
+      setCurrentPlan(currentResponse.data.plan || null)
     } catch {
-      setDetailError('No pudimos cargar el detalle del club.')
+      setPlanError('No pudimos cargar los planes disponibles. Intenta nuevamente.')
     } finally {
-      setIsDetailLoading(false)
+      setIsPlansLoading(false)
+    }
+  }
+
+  const closePlanSelector = () => {
+    if (selectingPlanId) return
+    setIsPlanOpen(false); setPlanClub(null); setPlans([]); setPlanError(''); setPlanSuccess('')
+    if (detailClub) setIsDetailOpen(true)
+  }
+
+  const selectPlan = async (plan) => {
+    if (!window.confirm('¿Deseas seleccionar este plan para el club?')) return
+    setSelectingPlanId(plan.id); setPlanError(''); setPlanSuccess('')
+    try {
+      const { data } = await api.post(`/clubes/${planClub.id}/seleccionar-plan/`, { plan_id: plan.id })
+      const selectedPlan = data.plan || plan
+      setCurrentPlan(selectedPlan)
+      setDetailPlan(selectedPlan)
+      setDetailPlanError('')
+      setDetailClub((current) => current?.id === planClub.id ? { ...current, plan: selectedPlan.codigo } : current)
+      setClubs((current) => current.map((club) => club.id === planClub.id ? { ...club, plan: selectedPlan.codigo } : club))
+      setPlanSuccess('Plan seleccionado correctamente')
+    } catch (requestError) {
+      const fieldError = requestError.response?.data?.plan_id
+      const message = Array.isArray(fieldError) ? fieldError[0] : fieldError
+      setPlanError(message || 'No se pudo seleccionar el plan. Intenta nuevamente.')
+    } finally {
+      setSelectingPlanId(null)
     }
   }
 
@@ -149,8 +206,8 @@ function ClubsPage() {
     if (!configForm.nombre.trim()) return 'El nombre del club es obligatorio'
     if (!configForm.email_contacto.trim()) return 'El correo de contacto es obligatorio'
     if (!emailPattern.test(configForm.email_contacto.trim())) return 'Ingrese un correo válido'
-    if (configForm.logo_url.trim() && !isValidLogoUrl(configForm.logo_url.trim())) return 'Ingrese una URL válida para el logotipo'
-    if (configForm.logo_url.trim() && configLogoFailed) return 'No se pudo previsualizar el logotipo'
+    if (configForm.logo_url.trim() && !isValidHttpUrl(configForm.logo_url.trim())) return 'Ingrese una URL válida para el logotipo'
+    if (configForm.logo_url.trim() && !looksLikeImageUrl(configForm.logo_url.trim())) return 'El logotipo debe ser una imagen válida'
     return ''
   }
 
@@ -165,6 +222,7 @@ function ClubsPage() {
     try {
       const { data } = await api.patch(`/clubes/${configuringClub.id}/configurar/`, payload)
       setClubs((current) => current.map((club) => club.id === data.id ? data : club))
+      setDetailClub((current) => current?.id === data.id ? data : current)
       setSuccess('Configuración del club actualizada correctamente')
       setIsConfigOpen(false); setConfiguringClub(null); setConfigForm(emptyForm); setConfigLogoFailed(false)
     } catch (requestError) {
@@ -207,6 +265,8 @@ function ClubsPage() {
   }
 
   const formatDate = (value) => value ? new Intl.DateTimeFormat('es-BO', { dateStyle: 'long' }).format(new Date(value)) : 'No disponible'
+  const formatPlanPrice = (value) => `$${Number(value || 0).toLocaleString('es-BO')} / mes`
+  const formatLimit = (value, singular, plural) => value == null ? `Sin límite de ${plural}` : `${value} ${Number(value) === 1 ? singular : plural}`
 
   return (
     <section className="page page-fluid clubs-page">
@@ -234,7 +294,7 @@ function ClubsPage() {
           <section className="clubs-modal club-config-modal" role="dialog" aria-modal="true" aria-labelledby="club-config-title">
             <div className="clubs-modal-header"><div><span className="eyebrow">Identidad institucional</span><h2 id="club-config-title">Configurar club</h2><p>Actualiza la identidad institucional y los datos principales del club.</p></div><button type="button" className="clubs-modal-close" onClick={closeConfigForm} aria-label="Cerrar configuración">×</button></div>
             <div className="club-config-preview">
-              {configForm.logo_url && isValidLogoUrl(configForm.logo_url) && !configLogoFailed ? <img src={configForm.logo_url} alt={`Vista previa de ${configForm.nombre || configuringClub.nombre}`} onError={() => setConfigLogoFailed(true)} /> : <ClubLogo club={{ ...configuringClub, nombre: configForm.nombre || configuringClub.nombre, logo_url: '' }} large />}
+              {configForm.logo_url && looksLikeImageUrl(configForm.logo_url) && !configLogoFailed ? <img src={configForm.logo_url} alt={`Vista previa de ${configForm.nombre || configuringClub.nombre}`} onError={() => setConfigLogoFailed(true)} /> : <ClubLogo club={{ ...configuringClub, nombre: configForm.nombre || configuringClub.nombre, logo_url: '' }} large />}
               <div><span className="club-config-preview-label">Vista previa</span><h3>{configForm.nombre || 'Nombre del club'}</h3><div className="club-config-preview-meta"><span className={configuringClub.activo ? 'club-status-active' : 'club-status-inactive'}>{configuringClub.activo ? 'Activo' : 'Inactivo'}</span>{configForm.colores && <span className="club-config-colors">{configForm.colores}</span>}</div></div>
             </div>
             {configLogoFailed && <p className="club-logo-preview-warning">No se pudo previsualizar el logotipo</p>}
@@ -252,7 +312,68 @@ function ClubsPage() {
         </div>
       )}
 
-      {isDetailOpen && <div className="clubs-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsDetailOpen(false) }}><section className="clubs-modal clubs-detail-modal" role="dialog" aria-modal="true" aria-labelledby="club-detail-title"><div className="clubs-modal-header"><div><span className="eyebrow">Detalle institucional</span><h2 id="club-detail-title">Información del club</h2></div><button type="button" className="clubs-modal-close" onClick={() => setIsDetailOpen(false)} aria-label="Cerrar detalle">×</button></div>{isDetailLoading ? <div className="clubs-empty"><span className="clubs-loader" /><strong>Cargando detalle...</strong></div> : detailError ? <div className="clubs-alert clubs-alert-error">{detailError}</div> : detailClub && <><div className="club-detail-hero"><ClubLogo key={`${detailClub.id}:${detailClub.logo_url}`} club={detailClub} large /><div><h3>{detailClub.nombre}</h3><span className={detailClub.activo ? 'club-status-active' : 'club-status-inactive'}>{detailClub.activo ? 'Activo' : 'Inactivo'}</span></div></div><dl className="club-detail-grid"><div><dt>Correo</dt><dd>{detailClub.email_contacto || 'No registrado'}</dd></div><div><dt>Teléfono</dt><dd>{detailClub.telefono || 'No registrado'}</dd></div><div><dt>Dirección</dt><dd>{detailClub.direccion || 'No registrada'}</dd></div><div><dt>Colores institucionales</dt><dd>{detailClub.colores || 'No registrados'}</dd></div><div><dt>Slug</dt><dd>{detailClub.slug || '—'}</dd></div><div><dt>Fecha de creación</dt><dd>{formatDate(detailClub.creado_en)}</dd></div></dl><div className="clubs-form-actions club-detail-actions"><button type="button" className="button-ghost" onClick={() => setIsDetailOpen(false)}>Cerrar</button><button type="button" className="button-secondary club-config-button" onClick={() => openConfigForm(detailClub)}>Configurar club</button><button type="button" className="button-primary" onClick={() => openEditForm(detailClub)}>Editar</button></div></>}</section></div>}
+      {isPlanOpen && planClub && (
+        <div className="clubs-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closePlanSelector() }}>
+          <section className="clubs-modal club-plans-modal" role="dialog" aria-modal="true" aria-labelledby="club-plans-title">
+            <div className="clubs-modal-header">
+              <div><span className="eyebrow">Suscripción del club</span><h2 id="club-plans-title">Seleccionar plan SaaS</h2><p>Elige el plan que mejor se adapta a las necesidades del club.</p></div>
+              <button type="button" className="clubs-modal-close" onClick={closePlanSelector} aria-label="Cerrar selección de plan">×</button>
+            </div>
+            <div className="club-plans-context">
+              <div><span>Club</span><strong>{planClub.nombre}</strong></div>
+              <div><span>Plan actual</span><strong>{currentPlan?.nombre || 'Sin plan seleccionado'}</strong></div>
+            </div>
+            {planSuccess && <div className="clubs-alert clubs-alert-success" role="status">{planSuccess}</div>}
+            {planError && <div className="clubs-alert clubs-alert-error" role="alert">{planError}</div>}
+            {isPlansLoading ? (
+              <div className="clubs-empty club-plans-loading"><span className="clubs-loader" /><strong>Cargando planes disponibles...</strong></div>
+            ) : plans.length ? (
+              <div className="club-plans-grid">
+                {plans.map((plan) => {
+                  const isCurrent = String(currentPlan?.id) === String(plan.id)
+                  const isRecommended = plan.codigo === 'PRO'
+                  return (
+                    <article key={plan.id} className={`club-plan-card ${isCurrent ? 'is-current' : ''} ${isRecommended ? 'is-recommended' : ''}`}>
+                      <div className="club-plan-card-top">
+                        <div>{isRecommended && <span className="club-plan-recommended">Recomendado</span>}<h3>{plan.nombre}</h3></div>
+                        {isCurrent && <span className="club-plan-current-badge">Plan actual</span>}
+                      </div>
+                      <p className="club-plan-description">{plan.descripcion}</p>
+                      <div className="club-plan-price">{formatPlanPrice(plan.precio_mensual)}</div>
+                      <ul className="club-plan-summary">
+                        <li>{formatLimit(plan.limite_jugadores, 'jugador', 'jugadores')}</li>
+                        <li>{formatLimit(plan.limite_equipos, 'equipo', 'equipos')}</li>
+                        <li>{plan.incluye_ia ? 'Incluye IA' : 'Sin IA avanzada'}</li>
+                        <li>{plan.incluye_reportes ? 'Incluye reportes' : 'Sin reportes'}</li>
+                        <li>Soporte {plan.soporte || 'estándar'}</li>
+                      </ul>
+                      {Array.isArray(plan.caracteristicas) && plan.caracteristicas.length > 0 && <ul className="club-plan-features">{plan.caracteristicas.map((feature) => <li key={feature}>{feature}</li>)}</ul>}
+                      <button type="button" className={isCurrent ? 'button-ghost' : 'button-primary'} onClick={() => selectPlan(plan)} disabled={isCurrent || selectingPlanId !== null}>
+                        {isCurrent ? 'Plan actual' : selectingPlanId === plan.id ? 'Guardando...' : 'Seleccionar plan'}
+                      </button>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : !planError && <div className="clubs-empty"><strong>No hay planes disponibles</strong></div>}
+            <div className="club-plans-footer"><button type="button" className="button-ghost" onClick={closePlanSelector} disabled={selectingPlanId !== null}>Volver al club</button></div>
+          </section>
+        </div>
+      )}
+
+      {isDetailOpen && (
+        <div className="clubs-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsDetailOpen(false) }}>
+          <section className="clubs-modal clubs-detail-modal" role="dialog" aria-modal="true" aria-labelledby="club-detail-title">
+            <div className="clubs-modal-header"><div><span className="eyebrow">Detalle institucional</span><h2 id="club-detail-title">Información del club</h2></div><button type="button" className="clubs-modal-close" onClick={() => setIsDetailOpen(false)} aria-label="Cerrar detalle">×</button></div>
+            {isDetailLoading ? <div className="clubs-empty"><span className="clubs-loader" /><strong>Cargando detalle...</strong></div> : detailError ? <div className="clubs-alert clubs-alert-error">{detailError}</div> : detailClub && <>
+              <div className="club-detail-hero"><ClubLogo key={`${detailClub.id}:${detailClub.logo_url}`} club={detailClub} large /><div><h3>{detailClub.nombre}</h3><span className={detailClub.activo ? 'club-status-active' : 'club-status-inactive'}>{detailClub.activo ? 'Activo' : 'Inactivo'}</span></div></div>
+              <div className="club-detail-plan"><span>Plan actual</span><strong>{detailPlanError ? 'No disponible' : detailPlan?.nombre || 'Sin plan seleccionado'}</strong></div>
+              <dl className="club-detail-grid"><div><dt>Correo</dt><dd>{detailClub.email_contacto || 'No registrado'}</dd></div><div><dt>Teléfono</dt><dd>{detailClub.telefono || 'No registrado'}</dd></div><div><dt>Dirección</dt><dd>{detailClub.direccion || 'No registrada'}</dd></div><div><dt>Colores institucionales</dt><dd>{detailClub.colores || 'No registrados'}</dd></div><div><dt>Slug</dt><dd>{detailClub.slug || '—'}</dd></div><div><dt>Fecha de creación</dt><dd>{formatDate(detailClub.creado_en)}</dd></div></dl>
+              <div className="clubs-form-actions club-detail-actions"><button type="button" className="button-ghost" onClick={() => setIsDetailOpen(false)}>Cerrar</button><button type="button" className="button-secondary club-config-button" onClick={() => openConfigForm(detailClub)}>Configurar club</button><button type="button" className="button-secondary club-plan-button" onClick={() => openPlanSelector(detailClub)}>Seleccionar plan SaaS</button><button type="button" className="button-primary" onClick={() => openEditForm(detailClub)}>Editar</button></div>
+            </>}
+          </section>
+        </div>
+      )}
     </section>
   )
 }

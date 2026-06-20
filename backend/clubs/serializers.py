@@ -106,9 +106,11 @@ class ClubConfigSerializer(serializers.ModelSerializer):
     def validate_logo_url(self, value):
         if not value:
             return None
-        image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif')
-        if not urlparse(value).path.lower().endswith(image_extensions):
-            raise serializers.ValidationError('La URL del logotipo debe apuntar a una imagen válida.')
+        image_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.svg')
+        parsed_url = urlparse(value)
+        image_reference = f'{parsed_url.path}?{parsed_url.query}'.lower()
+        if not any(extension in image_reference for extension in image_extensions):
+            raise serializers.ValidationError('El logotipo debe ser una imagen válida.')
         return value
 
     def update(self, instance, validated_data):
@@ -116,15 +118,3 @@ class ClubConfigSerializer(serializers.ModelSerializer):
             validated_data['slug'] = ClubSerializer._available_slug(validated_data['nombre'], instance)
         validated_data['actualizado_en'] = timezone.now()
         return super().update(instance, validated_data)
-
-
-class SeleccionarPlanSerializer(serializers.Serializer):
-    PLANES_VALIDOS = {'BASICO', 'PRO', 'ELITE'}
-
-    plan = serializers.CharField(required=True)
-
-    def validate_plan(self, value):
-        plan = value.strip().upper()
-        if plan not in self.PLANES_VALIDOS:
-            raise serializers.ValidationError('El plan debe ser BASICO, PRO o ELITE.')
-        return plan
