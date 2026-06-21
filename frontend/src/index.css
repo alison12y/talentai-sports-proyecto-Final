@@ -729,6 +729,10 @@ p {
   display: none;
 }
 
+.app-offline-banner {
+  margin: 16px 28px 0;
+}
+
 .content {
   padding: 28px;
 }
@@ -3961,4 +3965,197 @@ p {
   .evolution-actions,
   .evolution-detail-grid { grid-template-columns: 1fr; }
   .evolution-actions button:last-child { grid-column: auto; }
+}
+
+/* Cuotas sociales */
+.cuotas-page { max-width: 1320px; }
+.cuotas-toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 13px;
+  padding: 17px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+.cuotas-toolbar label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 850;
+}
+.cuotas-toolbar select,
+.cuota-form .clubs-form-group select {
+  width: 100%;
+  height: 46px;
+  padding: 0 36px 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 11px;
+  color: #0f172a;
+  background: #fff;
+  outline: 0;
+}
+.cuotas-toolbar select:focus,
+.cuota-form .clubs-form-group select:focus { border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, .1); }
+.cuotas-toolbar select:disabled,
+.cuota-form .clubs-form-group select:disabled { color: #94a3b8; background: #f8fafc; cursor: not-allowed; }
+.cuotas-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cuota-card { border-top: 4px solid #2563eb; }
+.cuota-card-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cuota-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cuota-modal { width: min(760px, 100%); }
+.cuota-payments-modal { width: min(780px, 100%); }
+.cuota-payment-states {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.payment-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.payment-state-pendiente { color: #92400e; background: #fef3c7; }
+.payment-state-pagado { color: #166534; background: #dcfce7; }
+.payment-state-vencido { color: #991b1b; background: #fee2e2; }
+.payment-state-anulado { color: #475569; background: #e2e8f0; }
+.cuota-payments-list {
+  display: grid;
+  gap: 9px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.cuota-payment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 120px;
+  align-items: center;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.cuota-payment-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.cuota-payment-row strong { color: #0f172a; overflow-wrap: anywhere; }
+.cuota-payment-row small { color: #64748b; font-size: 11px; font-weight: 750; }
+
+@media (max-width: 1050px) {
+  .cuotas-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .cuotas-toolbar,
+  .cuotas-grid,
+  .cuota-payment-states { grid-template-columns: 1fr; }
+  .cuotas-toolbar .button-ghost { width: 100%; }
+  .cuota-payment-row { grid-template-columns: 1fr; align-items: start; }
+  .cuota-payment-row .payment-state { width: fit-content; }
+}
+
+/* Portal Padre */
+.parent-portal-page { max-width: 1120px; }
+.parent-player-card {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+.parent-player-card > div { display: grid; gap: 5px; }
+.parent-player-card strong { color: var(--text); font-size: 20px; }
+.parent-player-card small { color: var(--muted); font-weight: 700; }
+.parent-player-card label {
+  display: grid;
+  width: min(360px, 100%);
+  gap: 7px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 850;
+}
+.parent-player-card select {
+  width: 100%;
+  height: 46px;
+  padding: 0 38px 0 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 11px;
+  color: var(--text);
+  background: var(--panel);
+  outline: 0;
+}
+.parent-player-card select:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(37, 99, 235, .1); }
+.parent-player-card select:disabled { color: #94a3b8; background: #f8fafc; cursor: not-allowed; }
+.parent-callups-section {
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+.parent-callups-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.parent-callup-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+}
+.parent-callup-card::before { position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, var(--primary), var(--sport)); content: ''; }
+.parent-callup-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.parent-callup-card-top h3 { margin: 5px 0 0; color: var(--text); font-size: 19px; }
+.parent-callup-details { display: grid; gap: 9px; margin: 0; }
+.parent-callup-details > div { display: flex; justify-content: space-between; gap: 14px; padding-bottom: 9px; border-bottom: 1px solid var(--border); }
+.parent-callup-details dt { color: var(--muted); font-size: 12px; font-weight: 800; }
+.parent-callup-details dd { margin: 0; color: var(--text); font-size: 12px; font-weight: 850; text-align: right; }
+.parent-rejection-reason { padding: 12px 14px; border: 1px solid #fecaca; border-radius: 12px; background: #fef2f2; }
+.parent-rejection-reason span { color: #b91c1c; font-size: 10px; font-weight: 900; letter-spacing: .03em; text-transform: uppercase; }
+.parent-rejection-reason p { margin: 5px 0 0; color: #7f1d1d; font-size: 13px; line-height: 1.45; }
+.parent-callup-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: auto; }
+.parent-callup-actions button { width: 100%; }
+.parent-callup-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.parent-offline-alert,
+.parent-pending-alert { border-color: #fde68a; color: #92400e; background: #fffbeb; }
+.parent-status-sync { color: #92400e; background: #fef3c7; }
+.parent-reject-modal { width: min(560px, 100%); }
+.parent-reject-form { display: grid; gap: 18px; }
+.parent-reject-form .clubs-form-group { display: grid; gap: 7px; color: #334155; font-size: 12px; font-weight: 850; }
+.parent-reject-form textarea { width: 100%; resize: vertical; padding: 12px 13px; border: 1px solid #cbd5e1; border-radius: 11px; color: var(--text); background: var(--panel); font: inherit; line-height: 1.45; outline: 0; }
+.parent-reject-form textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(37, 99, 235, .1); }
+
+@media (max-width: 760px) {
+  .parent-portal-page { padding: 20px; }
+  .parent-player-card { align-items: stretch; flex-direction: column; }
+  .parent-player-card label { width: 100%; }
+  .parent-callups-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .parent-portal-page { padding: 16px; }
+  .parent-callups-section { padding: 16px; }
+  .parent-callup-card { padding: 17px; }
+  .parent-callup-card-top { flex-direction: column; }
+  .parent-callup-actions { grid-template-columns: 1fr; }
 }

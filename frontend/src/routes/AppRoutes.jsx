@@ -5,11 +5,13 @@ import AttendancePage from '../pages/AttendancePage'
 import CategoriesPage from '../pages/CategoriesPage'
 import CallUpsPage from '../pages/CallUpsPage'
 import ClubsPage from '../pages/ClubsPage'
+import CuotasPage from '../pages/CuotasPage'
 import DashboardPage from '../pages/DashboardPage'
 import EventsPage from '../pages/EventsPage'
 import LoginPage from '../pages/LoginPage'
 import MatchesPage from '../pages/MatchesPage'
 import MembershipsPage from '../pages/MembershipsPage'
+import ParentPortalPage from '../pages/ParentPortalPage'
 import PlayersPage from '../pages/PlayersPage'
 import PlayerStatsPage from '../pages/PlayerStatsPage'
 import PhysicalEvolutionPage from '../pages/PhysicalEvolutionPage'
@@ -34,6 +36,8 @@ function AppRoutes() {
         <Route path="/evolucion-fisica" element={<PhysicalEvolutionPage />} />
         <Route path="/usuarios" element={<UsersPage />} />
         <Route path="/roles-permisos" element={<MembershipsPage />} />
+        <Route path="/cuotas" element={<CuotasPage />} />
+        <Route path="/portal-padre" element={<ParentPortalPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

@@ -2,11 +2,12 @@ import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.db import DataError, IntegrityError, transaction
+from django.db import DataError, IntegrityError, connection, transaction
 from django.utils import timezone
 from rest_framework import serializers
 
 from clubs.models import Club
+from payments.models import Cuota, Pago
 from users.models import Usuario
 from .models import (
     Asistencia,
@@ -63,6 +64,76 @@ def generar_convocatorias_evento(evento, exigir_equipo=True):
     ]
     Convocatoria.objects.bulk_create(convocatorias, ignore_conflicts=True)
     return len(convocatorias)
+
+
+PAGO_PENDIENTE_INSERT_SQL = """
+INSERT INTO pago (
+    id, cuota_id, jugador_id, monto, moneda, estado,
+    fecha_vencimiento, creado_en, actualizado_en
+)
+VALUES (%s, %s, %s, %s, %s, %s::estado_pago, %s, %s, %s)
+ON CONFLICT (cuota_id, jugador_id) DO NOTHING
+"""
+
+
+def insertar_pagos_pendientes(params):
+    with connection.cursor() as cursor:
+        cursor.executemany(PAGO_PENDIENTE_INSERT_SQL, params)
+        return cursor.rowcount if cursor.rowcount > 0 else 0
+
+
+@transaction.atomic
+def generar_pagos_cuota(cuota):
+    if cuota.estado != Cuota.Estado.ACTIVA:
+        raise serializers.ValidationError({
+            'estado': 'Solo se pueden generar pagos para una cuota ACTIVA.',
+        })
+
+    if cuota.equipo_id:
+        jugador_ids = set(JugadorEquipo.objects.filter(
+            equipo_id=cuota.equipo_id,
+            activo=True,
+            jugador__estado='ACTIVO',
+            jugador__club_id=cuota.club_id,
+        ).values_list('jugador_id', flat=True).distinct())
+    else:
+        jugador_ids = set(Jugador.objects.filter(
+            club_id=cuota.club_id,
+            estado='ACTIVO',
+        ).values_list('id', flat=True))
+
+    if not jugador_ids:
+        raise serializers.ValidationError({
+            'jugadores': 'No hay jugadores activos para generar pagos de esta cuota.',
+        })
+
+    existentes = set(Pago.objects.filter(
+        cuota=cuota,
+        jugador_id__in=jugador_ids,
+    ).values_list('jugador_id', flat=True))
+    nuevos_ids = jugador_ids - existentes
+    now = timezone.now()
+    pagos_creados = 0
+    if nuevos_ids:
+        params = [
+            (
+                uuid.uuid4(),
+                cuota.pk,
+                jugador_id,
+                cuota.monto,
+                cuota.moneda,
+                Pago.Estado.PENDIENTE,
+                cuota.fecha_vencimiento,
+                now,
+                now,
+            )
+            for jugador_id in nuevos_ids
+        ]
+        pagos_creados = insertar_pagos_pendientes(params)
+    return {
+        'pagos_creados': pagos_creados,
+        'total': len(jugador_ids),
+    }
 
 
 class CategoriaDeportivaSerializer(serializers.ModelSerializer):
@@ -888,7 +959,7 @@ class ConvocatoriaRespuestaSerializer(serializers.Serializer):
     respuesta = serializers.ChoiceField(choices=(
         Convocatoria.Estado.CONFIRMADO,
         Convocatoria.Estado.RECHAZADO,
-    ))
+    ), required=False)
     motivo_rechazo = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -901,7 +972,12 @@ class ConvocatoriaRespuestaSerializer(serializers.Serializer):
     def validate(self, attrs):
         convocatoria = self.instance
         respuesta_esperada = self.context.get('respuesta_esperada')
-        respuesta = attrs.get('respuesta')
+        respuesta = attrs.get('respuesta', respuesta_esperada)
+
+        if respuesta is None:
+            raise serializers.ValidationError({
+                'respuesta': 'Debe indicar si la convocatoria se confirma o se rechaza.',
+            })
 
         if respuesta_esperada and respuesta != respuesta_esperada:
             raise serializers.ValidationError({
@@ -919,6 +995,7 @@ class ConvocatoriaRespuestaSerializer(serializers.Serializer):
             raise serializers.ValidationError({
                 'respuesta': f'La convocatoria ya fue respondida como {respuesta}.',
             })
+        attrs['respuesta'] = respuesta
         return attrs
 
     def update(self, instance, validated_data):
@@ -940,6 +1017,72 @@ class ConvocatoriaRespuestaSerializer(serializers.Serializer):
             'actualizado_en', 'confirmado', 'confirmado_en',
         ])
         return instance
+
+
+class CuotaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cuota
+        fields = (
+            'id', 'club', 'equipo', 'concepto', 'descripcion', 'monto',
+            'moneda', 'periodo', 'fecha_vencimiento', 'estado', 'creado_en',
+            'actualizado_en',
+        )
+        read_only_fields = ('id', 'creado_en', 'actualizado_en')
+        extra_kwargs = {
+            'equipo': {'required': False, 'allow_null': True},
+            'descripcion': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'moneda': {'required': False, 'default': 'BOB'},
+            'periodo': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'estado': {'required': False, 'default': Cuota.Estado.ACTIVA},
+        }
+
+    def validate_concepto(self, value):
+        concepto = value.strip()
+        if not concepto:
+            raise serializers.ValidationError('El concepto es obligatorio.')
+        return concepto
+
+    def validate_monto(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('El monto debe ser mayor a 0.')
+        return value
+
+    def validate(self, attrs):
+        club = attrs.get('club', getattr(self.instance, 'club', None))
+        equipo = attrs.get('equipo', getattr(self.instance, 'equipo', None))
+        if equipo and club and equipo.club_id != club.pk:
+            raise serializers.ValidationError({
+                'equipo': 'El equipo debe pertenecer al club de la cuota.',
+            })
+        if self.instance and 'club' in attrs and attrs['club'].pk != self.instance.club_id:
+            raise serializers.ValidationError({
+                'club': 'El club de una cuota no puede modificarse.',
+            })
+        return attrs
+
+    def create(self, validated_data):
+        now = timezone.now()
+        validated_data.setdefault('id', uuid.uuid4())
+        validated_data.setdefault('moneda', 'BOB')
+        validated_data.setdefault('estado', Cuota.Estado.ACTIVA)
+        validated_data.setdefault('creado_en', now)
+        validated_data.setdefault('actualizado_en', now)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data['actualizado_en'] = timezone.now()
+        return super().update(instance, validated_data)
+
+
+class PagoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pago
+        fields = (
+            'id', 'cuota', 'jugador', 'monto', 'moneda', 'estado',
+            'metodo_pago', 'fecha_vencimiento', 'fecha_pago', 'referencia',
+            'observaciones', 'creado_en', 'actualizado_en',
+        )
+        read_only_fields = fields
 
 class JugadorSerializer(serializers.ModelSerializer):
     categoria = serializers.CharField(required=True, allow_blank=False)

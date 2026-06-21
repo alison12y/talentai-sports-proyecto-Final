@@ -11,6 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIRequestFactory
 
 from users.models import EstadoUsuarioClub, RolUsuario
+from payments.models import Cuota, Pago
 
 from .models import (
     Asistencia,
@@ -18,19 +19,24 @@ from .models import (
     EstadisticaPartido,
     Evento,
     EvolucionFisica,
+    Jugador,
+    JugadorEquipo,
     Partido,
 )
 from .serializers import (
     AsistenciaSerializer,
     CategoriaDeportivaSerializer,
     ConvocatoriaSerializer,
+    CuotaSerializer,
     EquipoSerializer,
     EstadisticaPartidoSerializer,
     EventoSerializer,
     EvolucionFisicaSerializer,
     JugadorSerializer,
     PartidoSerializer,
+    PAGO_PENDIENTE_INSERT_SQL,
     generar_convocatorias_evento,
+    generar_pagos_cuota,
 )
 from .views import (
     AsistenciaViewSet,
@@ -39,6 +45,7 @@ from .views import (
     CategoriaDeportivaViewSet,
     CategoriaPredefinidasView,
     ConvocatoriaViewSet,
+    CuotaViewSet,
     EquipoViewSet,
     EstadisticaPartidoViewSet,
     EventoViewSet,
@@ -1080,9 +1087,10 @@ class RespuestaConvocatoriaTests(SimpleTestCase):
         convocatoria = self.build_convocatoria()
         view = self.build_view(convocatoria)
 
-        response = view.confirmar(SimpleNamespace(data={
-            'respuesta': Convocatoria.Estado.CONFIRMADO,
-        }), pk=str(convocatoria.pk))
+        response = view.confirmar(
+            SimpleNamespace(data={}),
+            pk=str(convocatoria.pk),
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(convocatoria.estado, Convocatoria.Estado.CONFIRMADO)
@@ -1105,7 +1113,6 @@ class RespuestaConvocatoriaTests(SimpleTestCase):
         view = self.build_view(convocatoria)
 
         view.rechazar(SimpleNamespace(data={
-            'respuesta': Convocatoria.Estado.RECHAZADO,
             'motivo_rechazo': 'Motivo familiar',
         }), pk=str(convocatoria.pk))
 
@@ -1749,3 +1756,142 @@ class CategoriaPredefinidasViewTests(SimpleTestCase):
         self.assertEqual(response.data, CATEGORIAS_PREDEFINIDAS)
         self.assertEqual(response.data[0], 'Prebenjamín')
         self.assertEqual(response.data[-1], 'Sénior')
+
+
+class CuotaSocialTests(SimpleTestCase):
+    def build_cuota(self, **overrides):
+        values = {
+            'pk': uuid.uuid4(),
+            'club_id': uuid.uuid4(),
+            'equipo_id': None,
+            'concepto': 'Cuota mensual junio',
+            'monto': Decimal('80.00'),
+            'moneda': 'BOB',
+            'fecha_vencimiento': date(2026, 6, 30),
+            'estado': Cuota.Estado.ACTIVA,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    @patch('sports.serializers.Cuota.objects.create')
+    def test_crear_cuota_valida(self, create):
+        serializer = CuotaSerializer()
+        values = {
+            'club': SimpleNamespace(pk=uuid.uuid4()),
+            'concepto': serializer.validate_concepto(' Cuota junio '),
+            'monto': serializer.validate_monto(Decimal('80.00')),
+            'fecha_vencimiento': date(2026, 6, 30),
+        }
+        serializer.create(values)
+        saved = create.call_args.kwargs
+        self.assertEqual(saved['concepto'], 'Cuota junio')
+        self.assertEqual(saved['moneda'], 'BOB')
+        self.assertEqual(saved['estado'], Cuota.Estado.ACTIVA)
+
+    def test_monto_negativo_devuelve_validacion_clara(self):
+        with self.assertRaises(serializers.ValidationError) as context:
+            CuotaSerializer().validate_monto(Decimal('-1.00'))
+        self.assertIn('mayor a 0', str(context.exception.detail))
+
+    def test_concepto_vacio_devuelve_validacion_clara(self):
+        with self.assertRaises(serializers.ValidationError) as context:
+            CuotaSerializer().validate_concepto('   ')
+        self.assertIn('obligatorio', str(context.exception.detail))
+
+    def test_fecha_vencimiento_es_obligatoria(self):
+        field = CuotaSerializer().fields['fecha_vencimiento']
+        with self.assertRaises(serializers.ValidationError) as context:
+            field.run_validation(serializers.empty)
+        self.assertEqual(context.exception.detail[0].code, 'required')
+
+    @patch('sports.serializers.insertar_pagos_pendientes')
+    @patch('sports.serializers.Pago.objects.filter')
+    @patch('sports.serializers.JugadorEquipo.objects.filter')
+    def test_generar_pagos_para_equipo(self, relaciones, pagos_filter, insertar):
+        jugador_ids = [uuid.uuid4(), uuid.uuid4()]
+        relaciones.return_value.values_list.return_value.distinct.return_value = jugador_ids
+        pagos_filter.return_value.values_list.return_value = []
+        insertar.return_value = 2
+        cuota = self.build_cuota(equipo_id=uuid.uuid4())
+        resultado = generar_pagos_cuota.__wrapped__(cuota)
+        relaciones.assert_called_once_with(
+            equipo_id=cuota.equipo_id,
+            activo=True,
+            jugador__estado='ACTIVO',
+            jugador__club_id=cuota.club_id,
+        )
+        self.assertEqual(resultado, {'pagos_creados': 2, 'total': 2})
+        params = insertar.call_args.args[0]
+        self.assertIn('%s::estado_pago', PAGO_PENDIENTE_INSERT_SQL)
+        self.assertIn('ON CONFLICT (cuota_id, jugador_id) DO NOTHING', PAGO_PENDIENTE_INSERT_SQL)
+        self.assertEqual(len(params), 2)
+        self.assertEqual(params[0][5], Pago.Estado.PENDIENTE)
+
+    @patch('sports.serializers.insertar_pagos_pendientes')
+    @patch('sports.serializers.Pago.objects.filter')
+    @patch('sports.serializers.Jugador.objects.filter')
+    def test_generar_pagos_para_club(self, jugadores, pagos_filter, insertar):
+        jugador_ids = [uuid.uuid4(), uuid.uuid4(), uuid.uuid4()]
+        jugadores.return_value.values_list.return_value = jugador_ids
+        pagos_filter.return_value.values_list.return_value = []
+        insertar.return_value = 3
+        resultado = generar_pagos_cuota.__wrapped__(self.build_cuota())
+        self.assertEqual(resultado, {'pagos_creados': 3, 'total': 3})
+        self.assertEqual(len(insertar.call_args.args[0]), 3)
+
+    @patch('sports.serializers.insertar_pagos_pendientes')
+    @patch('sports.serializers.Pago.objects.filter')
+    @patch('sports.serializers.Jugador.objects.filter')
+    def test_no_duplica_pagos_al_generar_dos_veces(
+        self, jugadores, pagos_filter, insertar,
+    ):
+        jugador_id = uuid.uuid4()
+        jugadores.return_value.values_list.return_value = [jugador_id]
+        pagos_filter.return_value.values_list.side_effect = [[], [jugador_id]]
+        insertar.return_value = 1
+        cuota = self.build_cuota()
+        primero = generar_pagos_cuota.__wrapped__(cuota)
+        segundo = generar_pagos_cuota.__wrapped__(cuota)
+        self.assertEqual(primero['pagos_creados'], 1)
+        self.assertEqual(segundo['pagos_creados'], 0)
+        insertar.assert_called_once()
+
+    @patch('sports.views.PagoSerializer')
+    @patch('sports.views.Pago.objects.select_related')
+    def test_consultar_pagos_por_cuota(self, select_related, serializer_class):
+        cuota = self.build_cuota()
+        queryset = MagicMock()
+        select_related.return_value.filter.return_value.order_by.return_value = queryset
+        serializer_class.return_value.data = []
+        view = CuotaViewSet()
+        view.get_object = MagicMock(return_value=cuota)
+        response = view.pagos(MagicMock(), pk=str(cuota.pk))
+        select_related.return_value.filter.assert_called_once_with(cuota=cuota)
+        serializer_class.assert_called_once_with(queryset, many=True)
+        self.assertEqual(response.status_code, 200)
+
+    @patch('sports.views.PagoSerializer')
+    @patch('sports.views.Pago.objects.select_related')
+    def test_consultar_pagos_pendientes_por_jugador(
+        self, select_related, serializer_class,
+    ):
+        jugador = SimpleNamespace(pk=uuid.uuid4())
+        queryset = MagicMock()
+        select_related.return_value.filter.return_value.order_by.return_value = queryset
+        serializer_class.return_value.data = []
+        view = JugadorViewSet()
+        view.get_object = MagicMock(return_value=jugador)
+        response = view.pagos(MagicMock(), pk=str(jugador.pk))
+        select_related.return_value.filter.assert_called_once_with(
+            jugador=jugador,
+            estado=Pago.Estado.PENDIENTE,
+        )
+        serializer_class.assert_called_once_with(queryset, many=True)
+        self.assertEqual(response.status_code, 200)
+
+    @patch('sports.serializers.Jugador.objects.filter')
+    def test_sin_jugadores_devuelve_400_y_no_500(self, jugadores):
+        jugadores.return_value.values_list.return_value = []
+        with self.assertRaises(serializers.ValidationError) as context:
+            generar_pagos_cuota.__wrapped__(self.build_cuota())
+        self.assertIn('jugadores', context.exception.detail)

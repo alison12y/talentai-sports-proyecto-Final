@@ -8,12 +8,14 @@ from .views import (
     CategoriaListView,
     CategoriaPredefinidasView,
     ConvocatoriaViewSet,
+    CuotaViewSet,
     EquipoViewSet,
     EstadisticaPartidoViewSet,
     EventoViewSet,
     EvolucionFisicaViewSet,
     JugadorViewSet,
     PartidoViewSet,
+    PagoViewSet,
 )
 
 
@@ -21,6 +23,8 @@ router = DefaultRouter()
 router.register('equipos', EquipoViewSet, basename='equipo')
 router.register('eventos', EventoViewSet, basename='evento')
 router.register('convocatorias', ConvocatoriaViewSet, basename='convocatoria')
+router.register('cuotas', CuotaViewSet, basename='cuota')
+router.register('pagos', PagoViewSet, basename='pago')
 router.register('asistencias', AsistenciaViewSet, basename='asistencia')
 router.register('partidos', PartidoViewSet, basename='partido')
 router.register(

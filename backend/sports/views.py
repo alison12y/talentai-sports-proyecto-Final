@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from clubs.models import Club
+from payments.models import Cuota, Pago
 from users.models import EstadoUsuarioClub, RolUsuario, UsuarioClub
 
 from .models import (
@@ -28,13 +29,16 @@ from .serializers import (
     CategoriaDeportivaSerializer,
     ConvocatoriaSerializer,
     ConvocatoriaRespuestaSerializer,
+    CuotaSerializer,
     EquipoSerializer,
     EstadisticaPartidoSerializer,
     EventoSerializer,
     EvolucionFisicaSerializer,
     JugadorSerializer,
     PartidoSerializer,
+    PagoSerializer,
     generar_convocatorias_evento,
+    generar_pagos_cuota,
 )
 
 
@@ -359,6 +363,44 @@ class ConvocatoriaViewSet(viewsets.ModelViewSet):
         return self._responder(request, Convocatoria.Estado.RECHAZADO)
 
 
+class CuotaViewSet(viewsets.ModelViewSet):
+    queryset = Cuota.objects.select_related('club', 'equipo').all().order_by(
+        '-fecha_vencimiento', '-creado_en',
+    )
+    serializer_class = CuotaSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        cuota = self.get_object()
+        cuota.estado = Cuota.Estado.INACTIVA
+        cuota.actualizado_en = timezone.now()
+        cuota.save(update_fields=['estado', 'actualizado_en'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['post'], url_path='generar-pagos')
+    def generar_pagos(self, request, pk=None):
+        resultado = generar_pagos_cuota(self.get_object())
+        return Response(resultado, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def pagos(self, request, pk=None):
+        cuota = self.get_object()
+        queryset = Pago.objects.select_related('cuota', 'jugador').filter(
+            cuota=cuota,
+        ).order_by('jugador__apellido', 'jugador__nombre')
+        return Response(PagoSerializer(queryset, many=True).data)
+
+
+class PagoViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    queryset = Pago.objects.select_related('cuota', 'jugador').all().order_by(
+        '-fecha_vencimiento', '-creado_en',
+    )
+    serializer_class = PagoSerializer
+
+
 class AsistenciaViewSet(viewsets.ModelViewSet):
     queryset = Asistencia.objects.select_related('evento', 'jugador').filter(activo=True)
     serializer_class = AsistenciaSerializer
@@ -579,6 +621,15 @@ class JugadorViewSet(viewsets.ModelViewSet):
             'evento', 'jugador', 'evento__club', 'evento__equipo',
         ).filter(jugador=jugador).order_by('-creado_en')
         return Response(ConvocatoriaSerializer(queryset, many=True).data)
+
+    @action(detail=True, methods=['get'])
+    def pagos(self, request, pk=None):
+        jugador = self.get_object()
+        queryset = Pago.objects.select_related('cuota', 'jugador').filter(
+            jugador=jugador,
+            estado=Pago.Estado.PENDIENTE,
+        ).order_by('fecha_vencimiento')
+        return Response(PagoSerializer(queryset, many=True).data)
 
 
 class CategoriaListView(APIView):

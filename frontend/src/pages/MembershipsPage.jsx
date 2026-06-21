@@ -260,7 +260,9 @@ function MembershipsPage() {
           {ROLES.map((role) => (
             <article className={`role-permission-card permission-${role.toLowerCase()}`} key={role}>
               <div className="role-permission-card-header">
-                <span className={`membership-role role-${role.toLowerCase()}`}>{roleLabel(role)}</span>
+                <span className={`membership-role role-${role.toLowerCase()}`} translate="no">
+                  {role === 'PADRE' ? 'PADRE' : roleLabel(role)}
+                </span>
                 <small>{ROLE_PERMISSIONS[role].length} permisos</small>
               </div>
               <ul>

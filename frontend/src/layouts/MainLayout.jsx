@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 
 const navItems = [
@@ -15,7 +15,21 @@ const navItems = [
   { to: '/evolucion-fisica', label: 'Evolución física' },
   { to: '/usuarios', label: 'Usuarios' },
   { to: '/roles-permisos', label: 'Roles y permisos' },
+  { to: '/cuotas', label: 'Cuotas' },
+  { to: '/portal-padre', label: 'Portal Padre' },
 ]
+
+const menuPathsByRole = {
+  COORDINADOR: navItems
+    .filter((item) => item.to !== '/portal-padre')
+    .map((item) => item.to),
+  ENTRENADOR: [
+    '/dashboard', '/equipos', '/jugadores', '/eventos', '/convocatorias',
+    '/asistencias', '/partidos', '/estadisticas', '/evolucion-fisica',
+  ],
+  PADRE: ['/dashboard', '/portal-padre'],
+  JUGADOR: ['/dashboard'],
+}
 
 const readStoredJson = (key, fallback) => {
   try {
@@ -34,6 +48,8 @@ const roleLabel = (role) => role
   ? role.charAt(0) + role.slice(1).toLowerCase()
   : ''
 
+const normalizeRole = (role) => String(role || '').trim().toUpperCase()
+
 function MainLayout() {
   const navigate = useNavigate()
   const user = readStoredJson('user', null)
@@ -41,6 +57,28 @@ function MainLayout() {
   const [activeMembership, setActiveMembership] = useState(
     () => readStoredJson('activeMembership', null),
   )
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine)
+  const activeRole = normalizeRole(
+    activeMembership?.rol
+      || user?.rol
+      || user?.role
+      || memberships[0]?.rol,
+  )
+  const allowedMenuPaths = menuPathsByRole[activeRole] || ['/dashboard']
+  const visibleNavItems = navItems.filter(
+    (item) => allowedMenuPaths.includes(item.to),
+  )
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   const handleMembershipChange = (event) => {
     const membership = memberships.find(
@@ -72,7 +110,7 @@ function MainLayout() {
         </div>
 
         <nav className="side-nav" aria-label="Principal">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink key={item.to} to={item.to}>
               {item.label}
             </NavLink>
@@ -131,12 +169,18 @@ function MainLayout() {
         </header>
 
         <nav className="mobile-nav" aria-label="Principal movil">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink key={item.to} to={item.to}>
               {item.label}
             </NavLink>
           ))}
         </nav>
+
+        {!isOnline && (
+          <div className="clubs-alert parent-offline-alert app-offline-banner" role="status">
+            Modo offline
+          </div>
+        )}
 
         <main className="content">
           <Outlet />
