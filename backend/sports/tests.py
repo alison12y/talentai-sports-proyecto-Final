@@ -1,22 +1,1199 @@
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.db import DataError, IntegrityError
 from django.test import SimpleTestCase
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIRequestFactory
 
-from .serializers import CategoriaDeportivaSerializer, EquipoSerializer, JugadorSerializer
+from users.models import EstadoUsuarioClub, RolUsuario
+
+from .models import (
+    Asistencia,
+    Convocatoria,
+    EstadisticaPartido,
+    Evento,
+    EvolucionFisica,
+    Partido,
+)
+from .serializers import (
+    AsistenciaSerializer,
+    CategoriaDeportivaSerializer,
+    ConvocatoriaSerializer,
+    EquipoSerializer,
+    EstadisticaPartidoSerializer,
+    EventoSerializer,
+    EvolucionFisicaSerializer,
+    JugadorSerializer,
+    PartidoSerializer,
+    generar_convocatorias_evento,
+)
 from .views import (
+    AsistenciaViewSet,
     CATEGORIAS_PREDEFINIDAS,
     CategoriaClubListCreateView,
     CategoriaDeportivaViewSet,
     CategoriaPredefinidasView,
+    ConvocatoriaViewSet,
     EquipoViewSet,
+    EstadisticaPartidoViewSet,
+    EventoViewSet,
+    EvolucionFisicaViewSet,
     JugadorViewSet,
+    PartidoViewSet,
 )
+
+
+class AsistenciaSerializerTests(SimpleTestCase):
+    def setUp(self):
+        self.evento = SimpleNamespace(
+            pk=uuid.uuid4(),
+            tipo=Evento.Tipo.ENTRENAMIENTO,
+            estado=Evento.Estado.PROGRAMADO,
+            equipo_id=uuid.uuid4(),
+            fecha_inicio=datetime.now(timezone.utc),
+        )
+        self.jugador = SimpleNamespace(pk=uuid.uuid4())
+
+    def validate(self, estado, motivo=''):
+        with (
+            patch('sports.serializers.JugadorEquipo.objects.filter') as equipo_filter,
+            patch('sports.serializers.Convocatoria.objects.filter') as convocatoria_filter,
+        ):
+            equipo_filter.return_value.exists.return_value = True
+            convocatoria_filter.return_value.exists.return_value = False
+            return AsistenciaSerializer().validate({
+                'evento': self.evento,
+                'jugador': self.jugador,
+                'estado': estado,
+                'motivo': motivo,
+            })
+
+    def test_registrar_presente(self):
+        attrs = self.validate(Asistencia.Estado.PRESENTE)
+        self.assertEqual(attrs['estado'], Asistencia.Estado.PRESENTE)
+
+    def test_registrar_ausente(self):
+        attrs = self.validate(Asistencia.Estado.AUSENTE)
+        self.assertEqual(attrs['estado'], Asistencia.Estado.AUSENTE)
+
+    def test_registrar_justificado_con_motivo(self):
+        attrs = self.validate(Asistencia.Estado.JUSTIFICADO, 'Enfermedad')
+        self.assertEqual(attrs['motivo'], 'Enfermedad')
+
+    def test_justificado_sin_motivo_devuelve_error(self):
+        with self.assertRaises(serializers.ValidationError) as context:
+            self.validate(Asistencia.Estado.JUSTIFICADO)
+        self.assertIn('motivo', context.exception.detail)
+
+    def test_evento_no_entrenamiento_devuelve_error(self):
+        self.evento.tipo = Evento.Tipo.REUNION
+        with self.assertRaises(serializers.ValidationError) as context:
+            self.validate(Asistencia.Estado.PRESENTE)
+        self.assertIn('evento', context.exception.detail)
+
+    def test_evento_cancelado_devuelve_error(self):
+        self.evento.estado = Evento.Estado.CANCELADO
+        with self.assertRaises(serializers.ValidationError) as context:
+            self.validate(Asistencia.Estado.PRESENTE)
+        self.assertIn('evento', context.exception.detail)
+
+    @patch('sports.serializers.Convocatoria.objects.filter')
+    @patch('sports.serializers.JugadorEquipo.objects.filter')
+    def test_jugador_fuera_del_equipo_y_no_convocado_devuelve_error(
+        self, equipo_filter, convocatoria_filter,
+    ):
+        equipo_filter.return_value.exists.return_value = False
+        convocatoria_filter.return_value.exists.return_value = False
+        with self.assertRaises(serializers.ValidationError) as context:
+            AsistenciaSerializer().validate({
+                'evento': self.evento,
+                'jugador': self.jugador,
+                'estado': Asistencia.Estado.AUSENTE,
+                'motivo': '',
+            })
+        self.assertIn('jugador', context.exception.detail)
+
+    def test_bloquea_registro_fuera_del_plazo(self):
+        self.evento.fecha_inicio = datetime.now(timezone.utc) - timedelta(days=2)
+        with self.assertRaises(serializers.ValidationError) as context:
+            self.validate(Asistencia.Estado.PRESENTE)
+        self.assertIn('d\u00eda siguiente', str(context.exception.detail))
+
+    @patch('sports.serializers.Asistencia.objects.update_or_create')
+    def test_duplicado_actualiza_registro_existente(self, update_or_create):
+        existente = SimpleNamespace(estado=Asistencia.Estado.AUSENTE)
+        update_or_create.return_value = (existente, False)
+        serializer = AsistenciaSerializer(context={})
+
+        resultado = AsistenciaSerializer.create.__wrapped__(serializer, {
+            'evento': self.evento,
+            'jugador': self.jugador,
+            'estado': Asistencia.Estado.PRESENTE,
+            'motivo': '',
+        })
+
+        self.assertIs(resultado, existente)
+        self.assertFalse(serializer.context['asistencia_creada'])
+        update_or_create.assert_called_once()
+
+
+class AsistenciaViewSetTests(SimpleTestCase):
+    @patch('sports.views.AsistenciaSerializer')
+    @patch('sports.views.Asistencia.objects.select_related')
+    def test_consultar_asistencias_por_evento(self, select_related, serializer_class):
+        evento = SimpleNamespace(pk=uuid.uuid4())
+        queryset = MagicMock()
+        select_related.return_value.filter.return_value = queryset
+        serializer_class.return_value.data = [{'estado': Asistencia.Estado.PRESENTE}]
+        view = EventoViewSet()
+        view.get_object = MagicMock(return_value=evento)
+
+        response = view.asistencias(MagicMock(), pk=str(evento.pk))
+
+        select_related.return_value.filter.assert_called_once_with(
+            evento=evento,
+            activo=True,
+        )
+        serializer_class.assert_called_once_with(queryset, many=True)
+        self.assertEqual(response.status_code, 200)
+
+    @patch('sports.views.AsistenciaSerializer')
+    def test_registrar_asistencia_masiva(self, serializer_class):
+        evento = SimpleNamespace(pk=uuid.uuid4())
+        primera = MagicMock()
+        segunda = MagicMock()
+        salida = MagicMock(data=[{'estado': 'PRESENTE'}, {'estado': 'AUSENTE'}])
+        primera.is_valid.return_value = True
+        segunda.is_valid.return_value = True
+        primera.save.return_value = MagicMock()
+        segunda.save.return_value = MagicMock()
+        serializer_class.side_effect = [primera, segunda, salida]
+        view = EventoViewSet()
+        view.get_object = MagicMock(return_value=evento)
+        request = SimpleNamespace(data={'asistencias': [
+            {'jugador': str(uuid.uuid4()), 'estado': 'PRESENTE', 'motivo': ''},
+            {'jugador': str(uuid.uuid4()), 'estado': 'AUSENTE', 'motivo': ''},
+        ]})
+
+        response = EventoViewSet.registrar_asistencias.__wrapped__(
+            view, request, pk=str(evento.pk),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        primera.save.assert_called_once_with()
+        segunda.save.assert_called_once_with()
+
+    @patch('sports.views.Asistencia.objects.filter')
+    def test_resumen_asistencia_por_jugador(self, filter_mock):
+        jugador = SimpleNamespace(pk=uuid.uuid4())
+        filter_mock.return_value.values.return_value.annotate.return_value = [
+            {'estado': Asistencia.Estado.PRESENTE, 'total': 3},
+            {'estado': Asistencia.Estado.AUSENTE, 'total': 1},
+            {'estado': Asistencia.Estado.JUSTIFICADO, 'total': 1},
+        ]
+        view = JugadorViewSet()
+        view.get_object = MagicMock(return_value=jugador)
+
+        response = view.resumen_asistencia(MagicMock(), pk=str(jugador.pk))
+
+        self.assertEqual(response.data['total'], 5)
+        self.assertEqual(response.data['presentes'], 3)
+        self.assertEqual(response.data['porcentaje_asistencia'], 60.0)
+
+    def test_delete_realiza_baja_logica(self):
+        asistencia = SimpleNamespace(
+            activo=True,
+            actualizado_en=None,
+            save=MagicMock(),
+            delete=MagicMock(),
+        )
+        view = AsistenciaViewSet()
+        view.get_object = MagicMock(return_value=asistencia)
+
+        response = view.destroy(MagicMock(), pk='asistencia-1')
+
+        self.assertFalse(asistencia.activo)
+        asistencia.save.assert_called_once_with(update_fields=['activo', 'actualizado_en'])
+        asistencia.delete.assert_not_called()
+        self.assertEqual(response.status_code, 204)
+
+
+class PartidoSerializerTests(SimpleTestCase):
+    def setUp(self):
+        self.club_id = uuid.uuid4()
+        self.equipo = SimpleNamespace(pk=uuid.uuid4(), club_id=self.club_id)
+        self.evento = SimpleNamespace(
+            pk=uuid.uuid4(),
+            tipo=Evento.Tipo.PARTIDO,
+            estado=Evento.Estado.PROGRAMADO,
+            club_id=self.club_id,
+            equipo_id=self.equipo.pk,
+            fecha_inicio=datetime.now(timezone.utc),
+            ubicacion='Cancha principal',
+        )
+
+    @patch('sports.serializers.Partido.objects.filter')
+    def test_crear_partido_valido(self, filter_mock):
+        filter_mock.return_value.exists.return_value = False
+
+        attrs = PartidoSerializer().validate({
+            'evento': self.evento,
+            'equipo': self.equipo,
+            'nombre_rival': 'Tigres FC',
+            'goles_local': 3,
+            'goles_rival': 1,
+        })
+
+        self.assertEqual(attrs['goles_local'], 3)
+        self.assertEqual(attrs['goles_rival'], 1)
+
+    def test_evento_no_partido_devuelve_400(self):
+        self.evento.tipo = Evento.Tipo.ENTRENAMIENTO
+        with self.assertRaises(serializers.ValidationError) as context:
+            PartidoSerializer().validate({
+                'evento': self.evento,
+                'equipo': self.equipo,
+            })
+        self.assertIn('evento', context.exception.detail)
+
+    def test_evento_cancelado_devuelve_400(self):
+        self.evento.estado = Evento.Estado.CANCELADO
+        with self.assertRaises(serializers.ValidationError) as context:
+            PartidoSerializer().validate({
+                'evento': self.evento,
+                'equipo': self.equipo,
+            })
+        self.assertIn('evento', context.exception.detail)
+
+    def test_rival_obligatorio(self):
+        with self.assertRaises(serializers.ValidationError):
+            PartidoSerializer().validate_rival('   ')
+
+    def test_goles_negativos_devuelven_400(self):
+        field = PartidoSerializer().fields['goles_equipo']
+        with self.assertRaises(serializers.ValidationError):
+            field.run_validation(-1)
+
+    def test_goles_no_enteros_devuelven_400(self):
+        field = PartidoSerializer().fields['goles_rival']
+        with self.assertRaises(serializers.ValidationError):
+            field.run_validation('1.5')
+
+    @patch('rest_framework.serializers.ModelSerializer.update')
+    def test_editar_resultado_recalcula_resultado(self, model_update):
+        instance = SimpleNamespace(
+            evento=self.evento,
+            evento_id=self.evento.pk,
+            equipo=self.equipo,
+            equipo_id=self.equipo.pk,
+            goles_local=0,
+            goles_rival=0,
+            activo=True,
+            save=MagicMock(),
+        )
+
+        def apply_update(obj, values):
+            for field, value in values.items():
+                setattr(obj, field, value)
+            return obj
+
+        model_update.side_effect = apply_update
+        resultado = PartidoSerializer().update(instance, {
+            'goles_local': 1,
+            'goles_rival': 2,
+        })
+
+        self.assertIs(resultado, instance)
+        self.assertEqual(instance.goles_local, 1)
+        self.assertEqual(instance.goles_rival, 2)
+        self.assertEqual(instance.resultado, 'DERROTA')
+
+    @patch('rest_framework.serializers.ModelSerializer.create')
+    def test_error_esperado_de_base_de_datos_no_devuelve_500(self, create_mock):
+        create_mock.side_effect = IntegrityError('duplicado')
+        serializer = PartidoSerializer()
+        with self.assertRaises(serializers.ValidationError) as context:
+            serializer.create({
+                'evento': self.evento,
+                'equipo': self.equipo,
+                'nombre_rival': 'Tigres FC',
+                'goles_local': 2,
+                'goles_rival': 2,
+            })
+        self.assertIn('non_field_errors', context.exception.detail)
+
+
+class PartidoViewSetTests(SimpleTestCase):
+    @patch('sports.views.PartidoSerializer')
+    @patch('sports.views.Partido.objects.select_related')
+    def test_consultar_partidos_por_equipo(self, select_related, serializer_class):
+        equipo = SimpleNamespace(pk=uuid.uuid4())
+        queryset = MagicMock()
+        select_related.return_value.filter.return_value.order_by.return_value = queryset
+        serializer_class.return_value.data = [{'rival': 'Tigres FC'}]
+        view = EquipoViewSet()
+        view.get_object = MagicMock(return_value=equipo)
+
+        response = view.partidos(MagicMock(), pk=str(equipo.pk))
+
+        select_related.return_value.filter.assert_called_once_with(
+            equipo=equipo,
+            activo=True,
+        )
+        serializer_class.assert_called_once_with(queryset, many=True)
+        self.assertEqual(response.status_code, 200)
+
+    def test_delete_no_elimina_fisicamente(self):
+        partido = SimpleNamespace(
+            activo=True,
+            actualizado_en=None,
+            save=MagicMock(),
+            delete=MagicMock(),
+        )
+        view = PartidoViewSet()
+        view.get_object = MagicMock(return_value=partido)
+
+        response = view.destroy(MagicMock(), pk='partido-1')
+
+        self.assertFalse(partido.activo)
+        partido.save.assert_called_once_with(update_fields=['activo', 'actualizado_en'])
+        partido.delete.assert_not_called()
+        self.assertEqual(response.status_code, 204)
+
+
+class EstadisticaPartidoSerializerTests(SimpleTestCase):
+    def setUp(self):
+        self.equipo_id = uuid.uuid4()
+        self.partido = SimpleNamespace(pk=uuid.uuid4(), equipo_id=self.equipo_id)
+        self.jugador = SimpleNamespace(pk=uuid.uuid4())
+
+    @patch('sports.serializers.JugadorEquipo.objects.filter')
+    def test_crear_estadisticas_validas(self, filter_mock):
+        filter_mock.return_value.exists.return_value = True
+        attrs = EstadisticaPartidoSerializer().validate({
+            'partido': self.partido,
+            'jugador': self.jugador,
+            'minutos_jugados': 60,
+            'goles': 1,
+            'asistencias': 0,
+            'tarjetas_amarillas': 1,
+            'tarjetas_rojas': 0,
+            'valoracion': 8,
+        })
+        self.assertEqual(attrs['minutos_jugados'], 60)
+
+    @patch('sports.serializers.JugadorEquipo.objects.filter')
+    def test_jugador_fuera_del_equipo_devuelve_400(self, filter_mock):
+        filter_mock.return_value.exists.return_value = False
+        with self.assertRaises(serializers.ValidationError) as context:
+            EstadisticaPartidoSerializer().validate({
+                'partido': self.partido,
+                'jugador': self.jugador,
+            })
+        self.assertIn('jugador', context.exception.detail)
+
+    def test_valores_negativos_devuelven_400(self):
+        serializer = EstadisticaPartidoSerializer()
+        for field_name in (
+            'minutos_jugados', 'goles', 'asistencias',
+            'tarjetas_amarillas', 'tarjetas_rojas',
+        ):
+            with self.subTest(field=field_name):
+                with self.assertRaises(serializers.ValidationError):
+                    serializer.fields[field_name].run_validation(-1)
+
+    def test_valoracion_menor_a_cero_devuelve_400(self):
+        with self.assertRaises(serializers.ValidationError):
+            EstadisticaPartidoSerializer().fields['valoracion'].run_validation(-0.1)
+
+    def test_valoracion_mayor_a_diez_devuelve_400(self):
+        with self.assertRaises(serializers.ValidationError):
+            EstadisticaPartidoSerializer().fields['valoracion'].run_validation(10.1)
+
+    @patch('sports.serializers.EstadisticaPartido.objects.update_or_create')
+    def test_duplicado_actualiza_registro_existente(self, update_or_create):
+        existente = SimpleNamespace(pk=uuid.uuid4())
+        update_or_create.return_value = (existente, False)
+        serializer = EstadisticaPartidoSerializer(context={})
+
+        resultado = EstadisticaPartidoSerializer.create.__wrapped__(serializer, {
+            'partido': self.partido,
+            'jugador': self.jugador,
+            'minutos_jugados': 60,
+            'goles': 1,
+            'asistencias': 0,
+            'tarjetas_amarillas': 0,
+            'tarjetas_rojas': 0,
+            'valoracion': 8,
+            'notas': 'Buen desempeño',
+        })
+
+        self.assertIs(resultado, existente)
+        self.assertFalse(serializer.context['estadistica_creada'])
+        update_or_create.assert_called_once()
+
+    @patch('sports.serializers.EstadisticaPartido.objects.update_or_create')
+    def test_error_esperado_no_devuelve_500(self, update_or_create):
+        update_or_create.side_effect = IntegrityError('datos inválidos')
+        serializer = EstadisticaPartidoSerializer(context={})
+        with self.assertRaises(serializers.ValidationError) as context:
+            EstadisticaPartidoSerializer.create.__wrapped__(serializer, {
+                'partido': self.partido,
+                'jugador': self.jugador,
+                'minutos_jugados': 60,
+                'goles': 0,
+                'asistencias': 0,
+                'tarjetas_amarillas': 0,
+                'tarjetas_rojas': 0,
+            })
+        self.assertIn('non_field_errors', context.exception.detail)
+
+
+class EstadisticaPartidoViewSetTests(SimpleTestCase):
+    @patch('sports.views.EstadisticaPartidoSerializer')
+    @patch('sports.views.EstadisticaPartido.objects.select_related')
+    def test_consultar_estadisticas_por_partido(self, select_related, serializer_class):
+        partido = SimpleNamespace(pk=uuid.uuid4())
+        queryset = MagicMock()
+        select_related.return_value.filter.return_value = queryset
+        serializer_class.return_value.data = [{'goles': 1}]
+        view = PartidoViewSet()
+        view.get_object = MagicMock(return_value=partido)
+
+        response = view.estadisticas(MagicMock(), pk=str(partido.pk))
+
+        select_related.return_value.filter.assert_called_once_with(
+            partido=partido,
+            activo=True,
+        )
+        serializer_class.assert_called_once_with(queryset, many=True)
+        self.assertEqual(response.status_code, 200)
+
+    @patch('sports.views.EstadisticaPartidoSerializer')
+    def test_registrar_estadisticas_masivas(self, serializer_class):
+        partido = SimpleNamespace(pk=uuid.uuid4())
+        entrada = MagicMock()
+        salida = MagicMock(data=[{'goles': 1}])
+        entrada.is_valid.return_value = True
+        entrada.save.return_value = MagicMock()
+        serializer_class.side_effect = [entrada, salida]
+        view = PartidoViewSet()
+        view.get_object = MagicMock(return_value=partido)
+        request = SimpleNamespace(data={'estadisticas': [{
+            'jugador': str(uuid.uuid4()),
+            'minutos_jugados': 60,
+            'goles': 1,
+            'asistencias': 0,
+            'tarjetas_amarillas': 0,
+            'tarjetas_rojas': 0,
+            'valoracion': 8,
+            'observaciones': 'Buen desempeño',
+        }]})
+
+        response = PartidoViewSet.registrar_estadisticas.__wrapped__(
+            view, request, pk=str(partido.pk),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        entrada.save.assert_called_once_with()
+
+    @patch('sports.views.EstadisticaPartidoSerializer')
+    @patch('sports.views.EstadisticaPartido.objects.select_related')
+    def test_consultar_estadisticas_por_jugador(self, select_related, serializer_class):
+        jugador = SimpleNamespace(pk=uuid.uuid4())
+        queryset = MagicMock()
+        select_related.return_value.filter.return_value.order_by.return_value = queryset
+        serializer_class.return_value.data = [{'minutos_jugados': 60}]
+        view = JugadorViewSet()
+        view.get_object = MagicMock(return_value=jugador)
+
+        response = view.estadisticas(MagicMock(), pk=str(jugador.pk))
+
+        select_related.return_value.filter.assert_called_once_with(
+            jugador=jugador,
+            activo=True,
+        )
+        serializer_class.assert_called_once_with(queryset, many=True)
+        self.assertEqual(response.status_code, 200)
+
+    def test_delete_realiza_baja_logica(self):
+        estadistica = SimpleNamespace(
+            activo=True,
+            actualizado_en=None,
+            save=MagicMock(),
+            delete=MagicMock(),
+        )
+        view = EstadisticaPartidoViewSet()
+        view.get_object = MagicMock(return_value=estadistica)
+
+        response = view.destroy(MagicMock(), pk='estadistica-1')
+
+        self.assertFalse(estadistica.activo)
+        estadistica.save.assert_called_once_with(update_fields=['activo', 'actualizado_en'])
+        estadistica.delete.assert_not_called()
+        self.assertEqual(response.status_code, 204)
+
+
+class EvolucionFisicaSerializerTests(SimpleTestCase):
+    def setUp(self):
+        self.jugador = SimpleNamespace(pk=uuid.uuid4())
+        self.hoy = date.today()
+
+    @patch('sports.serializers.EvolucionFisica.objects.filter')
+    def test_crear_evolucion_fisica_valida(self, filter_mock):
+        filter_mock.return_value.exists.return_value = False
+        serializer = EvolucionFisicaSerializer()
+        attrs = serializer.validate({
+            'jugador': self.jugador,
+            'fecha': self.hoy,
+            'peso_kg': serializer.validate_peso(Decimal('48.5')),
+            'altura_cm': serializer.validate_altura(Decimal('1.55')),
+            'velocidad_40m': serializer.validate_velocidad_40m(Decimal('6.8')),
+            'test_cooper': serializer.validate_test_cooper(Decimal('2100')),
+        })
+        self.assertEqual(attrs['test_cooper'], Decimal('2100'))
+
+    def test_peso_negativo_devuelve_400(self):
+        with self.assertRaises(serializers.ValidationError):
+            EvolucionFisicaSerializer().validate_peso(Decimal('-1'))
+
+    def test_altura_negativa_devuelve_400(self):
+        with self.assertRaises(serializers.ValidationError):
+            EvolucionFisicaSerializer().validate_altura(Decimal('-1'))
+
+    def test_velocidad_40m_negativa_devuelve_400(self):
+        with self.assertRaises(serializers.ValidationError):
+            EvolucionFisicaSerializer().validate_velocidad_40m(Decimal('-1'))
+
+    def test_cooper_negativo_devuelve_400(self):
+        with self.assertRaises(serializers.ValidationError):
+            EvolucionFisicaSerializer().validate_test_cooper(Decimal('-1'))
+
+    def test_fecha_futura_devuelve_400(self):
+        with self.assertRaises(serializers.ValidationError):
+            EvolucionFisicaSerializer().validate_fecha_medicion(
+                self.hoy + timedelta(days=1),
+            )
+
+    @patch('sports.serializers.EvolucionFisica.objects.filter')
+    def test_segunda_medicion_misma_semana_devuelve_400(self, filter_mock):
+        filter_mock.return_value.exists.return_value = True
+        with self.assertRaises(serializers.ValidationError) as context:
+            EvolucionFisicaSerializer().validate({
+                'jugador': self.jugador,
+                'fecha': self.hoy,
+            })
+        self.assertIn('fecha_medicion', context.exception.detail)
+
+    @patch('rest_framework.serializers.ModelSerializer.update')
+    @patch('sports.serializers.EvolucionFisica.objects.filter')
+    def test_editar_medicion_valida(self, filter_mock, model_update):
+        filter_mock.return_value.exclude.return_value.exists.return_value = False
+        instance = SimpleNamespace(
+            pk=uuid.uuid4(),
+            jugador=self.jugador,
+            fecha=self.hoy,
+        )
+        serializer = EvolucionFisicaSerializer(instance=instance)
+        attrs = serializer.validate({'peso_kg': Decimal('49.2')})
+        model_update.return_value = instance
+
+        resultado = serializer.update(instance, attrs)
+
+        self.assertIs(resultado, instance)
+        model_update.assert_called_once()
+
+    @patch('rest_framework.serializers.ModelSerializer.create')
+    def test_error_esperado_no_devuelve_500(self, create_mock):
+        create_mock.side_effect = IntegrityError('datos inválidos')
+        with self.assertRaises(serializers.ValidationError) as context:
+            EvolucionFisicaSerializer().create({
+                'jugador': self.jugador,
+                'fecha': self.hoy,
+                'peso_kg': Decimal('48.5'),
+                'altura_cm': Decimal('1.55'),
+                'velocidad_40m': Decimal('6.8'),
+                'test_cooper': Decimal('2100'),
+            })
+        self.assertIn('non_field_errors', context.exception.detail)
+
+
+class EvolucionFisicaViewSetTests(SimpleTestCase):
+    @patch('sports.views.EvolucionFisicaSerializer')
+    @patch('sports.views.EvolucionFisica.objects.filter')
+    def test_consultar_historial_por_jugador(self, filter_mock, serializer_class):
+        jugador = SimpleNamespace(pk=uuid.uuid4())
+        queryset = MagicMock()
+        filter_mock.return_value.order_by.return_value = queryset
+        serializer_class.return_value.data = [{'peso': '48.50'}]
+        view = JugadorViewSet()
+        view.get_object = MagicMock(return_value=jugador)
+
+        response = view.evolucion_fisica(MagicMock(), pk=str(jugador.pk))
+
+        filter_mock.assert_called_once_with(jugador=jugador, activo=True)
+        serializer_class.assert_called_once_with(queryset, many=True)
+        self.assertEqual(response.status_code, 200)
+
+    @patch('sports.views.EvolucionFisicaSerializer')
+    @patch('sports.views.EvolucionFisica.objects.filter')
+    def test_consultar_ultimos_12_registros(self, filter_mock, serializer_class):
+        jugador = SimpleNamespace(pk=uuid.uuid4())
+        ordered = MagicMock()
+        last_twelve = MagicMock()
+        filter_mock.return_value.order_by.return_value = ordered
+        ordered.__getitem__.return_value = last_twelve
+        serializer_class.return_value.data = []
+        view = JugadorViewSet()
+        view.get_object = MagicMock(return_value=jugador)
+
+        response = view.ultimos_12_evolucion_fisica(
+            MagicMock(), pk=str(jugador.pk),
+        )
+
+        ordered.__getitem__.assert_called_once_with(slice(None, 12, None))
+        serializer_class.assert_called_once_with(last_twelve, many=True)
+        self.assertEqual(response.status_code, 200)
+
+    def test_delete_realiza_baja_logica(self):
+        evolucion = SimpleNamespace(
+            activo=True,
+            actualizado_en=None,
+            save=MagicMock(),
+            delete=MagicMock(),
+        )
+        view = EvolucionFisicaViewSet()
+        view.get_object = MagicMock(return_value=evolucion)
+
+        response = view.destroy(MagicMock(), pk='evolucion-1')
+
+        self.assertFalse(evolucion.activo)
+        evolucion.save.assert_called_once_with(update_fields=['activo', 'actualizado_en'])
+        evolucion.delete.assert_not_called()
+        self.assertEqual(response.status_code, 204)
+
+
+class EventoSerializerTests(SimpleTestCase):
+    def setUp(self):
+        self.inicio = datetime(2026, 7, 1, 14, 0, tzinfo=timezone.utc)
+        self.club = SimpleNamespace(pk=uuid.uuid4())
+
+    def test_rechaza_campos_obligatorios_ausentes(self):
+        serializer = EventoSerializer(data={})
+
+        self.assertFalse(serializer.is_valid())
+        for campo in ('club', 'titulo', 'tipo', 'fecha_inicio', 'fecha_fin'):
+            self.assertIn(campo, serializer.errors)
+
+    def test_rechaza_fecha_fin_igual_o_anterior_al_inicio(self):
+        serializer = EventoSerializer()
+
+        with self.assertRaises(serializers.ValidationError) as context:
+            serializer.validate({
+                'fecha_inicio': self.inicio,
+                'fecha_fin': self.inicio,
+            })
+
+        self.assertIn('fecha_fin', context.exception.detail)
+
+    def test_partido_exige_rival(self):
+        serializer = EventoSerializer()
+
+        with self.assertRaises(serializers.ValidationError) as context:
+            serializer.validate({'tipo': Evento.Tipo.PARTIDO, 'rival': None})
+
+        self.assertIn('rival', context.exception.detail)
+
+    def test_entrenamiento_permite_ubicacion_vacia(self):
+        serializer = EventoSerializer()
+
+        attrs = serializer.validate({
+            'tipo': Evento.Tipo.ENTRENAMIENTO,
+            'ubicacion': None,
+        })
+
+        self.assertIsNone(attrs['ubicacion'])
+
+    def test_rechaza_equipo_de_otro_club(self):
+        serializer = EventoSerializer()
+        equipo = SimpleNamespace(club_id=uuid.uuid4())
+
+        with self.assertRaises(serializers.ValidationError) as context:
+            serializer.validate({'club': self.club, 'equipo': equipo})
+
+        self.assertIn('equipo', context.exception.detail)
+
+    @patch('sports.serializers.Evento.objects.filter')
+    def test_rechaza_evento_duplicado(self, filter_mock):
+        filter_mock.return_value.filter.return_value.exists.return_value = True
+        serializer = EventoSerializer()
+        equipo = SimpleNamespace(pk=uuid.uuid4(), club_id=self.club.pk)
+
+        with self.assertRaises(serializers.ValidationError) as context:
+            serializer.validate({
+                'club': self.club,
+                'equipo': equipo,
+                'titulo': 'Entrenamiento táctico',
+                'fecha_inicio': self.inicio,
+                'fecha_fin': self.inicio + timedelta(hours=2),
+            })
+
+        self.assertIn('non_field_errors', context.exception.detail)
+        filter_mock.assert_called_once_with(
+            club=self.club,
+            titulo__iexact='Entrenamiento táctico',
+            fecha_inicio=self.inicio,
+        )
+        filter_mock.return_value.filter.assert_called_once_with(equipo=equipo)
+
+
+class EventoViewSetTests(SimpleTestCase):
+    @patch('sports.views.UsuarioClub.objects.filter')
+    def test_usuario_anonimo_puede_crear_hasta_integrar_autenticacion(self, filter_mock):
+        club = SimpleNamespace(pk=uuid.uuid4())
+        serializer = MagicMock(validated_data={'club': club})
+        view = EventoViewSet()
+        view.request = SimpleNamespace(user=SimpleNamespace(pk=None))
+
+        view.perform_create(serializer)
+
+        filter_mock.assert_not_called()
+        serializer.save.assert_called_once_with()
+
+    @patch('sports.views.UsuarioClub.objects.filter')
+    def test_creacion_exige_entrenador_o_administrador_activo(self, filter_mock):
+        filter_mock.return_value.exists.return_value = False
+        club = SimpleNamespace(pk=uuid.uuid4())
+        serializer = MagicMock(validated_data={'club': club})
+        view = EventoViewSet()
+        view.request = SimpleNamespace(user=SimpleNamespace(pk=uuid.uuid4()))
+
+        with self.assertRaises(PermissionDenied) as context:
+            view.perform_create(serializer)
+
+        self.assertEqual(context.exception.status_code, 403)
+        serializer.save.assert_not_called()
+
+    @patch('sports.views.UsuarioClub.objects.filter')
+    def test_entrenador_activo_puede_crear_evento(self, filter_mock):
+        filter_mock.return_value.exists.return_value = True
+        club = SimpleNamespace(pk=uuid.uuid4())
+        usuario_id = uuid.uuid4()
+        serializer = MagicMock(validated_data={'club': club})
+        view = EventoViewSet()
+        view.request = SimpleNamespace(user=SimpleNamespace(pk=usuario_id))
+
+        view.perform_create(serializer)
+
+        filter_mock.assert_called_once_with(
+            usuario_id=usuario_id,
+            club=club,
+            rol__in=(RolUsuario.ENTRENADOR, RolUsuario.COORDINADOR),
+            estado=EstadoUsuarioClub.ACTIVO,
+        )
+        serializer.save.assert_called_once_with()
+
+    def test_eliminar_evento_realiza_baja_logica(self):
+        evento = SimpleNamespace(
+            activo=True,
+            actualizado_en=None,
+            save=MagicMock(),
+            delete=MagicMock(),
+        )
+        view = EventoViewSet()
+        view.get_object = MagicMock(return_value=evento)
+
+        response = view.destroy(MagicMock(), pk='evento-1')
+
+        self.assertFalse(evento.activo)
+        evento.save.assert_called_once_with(
+            update_fields=['activo', 'actualizado_en'],
+        )
+        evento.delete.assert_not_called()
+        self.assertEqual(response.status_code, 204)
+
+    def test_no_finaliza_evento_cancelado(self):
+        evento = SimpleNamespace(
+            estado=Evento.Estado.CANCELADO,
+            save=MagicMock(),
+        )
+        view = EventoViewSet()
+        view.get_object = MagicMock(return_value=evento)
+
+        response = view.finalizar(MagicMock(), pk='evento-1')
+
+        evento.save.assert_not_called()
+        self.assertEqual(response.status_code, 400)
+
+    def test_no_cancela_evento_finalizado(self):
+        evento = SimpleNamespace(
+            estado=Evento.Estado.FINALIZADO,
+            save=MagicMock(),
+        )
+        view = EventoViewSet()
+        view.get_object = MagicMock(return_value=evento)
+
+        response = view.cancelar(MagicMock(), pk='evento-1')
+
+        evento.save.assert_not_called()
+        self.assertEqual(response.status_code, 400)
+
+    @patch('sports.views.EventoSerializer')
+    def test_finaliza_evento_programado(self, serializer_mock):
+        evento = SimpleNamespace(
+            estado=Evento.Estado.PROGRAMADO,
+            actualizado_en=None,
+            save=MagicMock(),
+        )
+        serializer_mock.return_value.data = {'estado': Evento.Estado.FINALIZADO}
+        view = EventoViewSet()
+        view.get_object = MagicMock(return_value=evento)
+        view.get_serializer = serializer_mock
+
+        response = view.finalizar(MagicMock(), pk='evento-1')
+
+        self.assertEqual(evento.estado, Evento.Estado.FINALIZADO)
+        evento.save.assert_called_once_with(
+            update_fields=['estado', 'actualizado_en'],
+        )
+        self.assertEqual(response.status_code, 200)
+
+
+class GeneracionConvocatoriasTests(SimpleTestCase):
+    def setUp(self):
+        self.evento = SimpleNamespace(
+            pk=uuid.uuid4(),
+            club_id=uuid.uuid4(),
+            equipo_id=uuid.uuid4(),
+            estado=Evento.Estado.PROGRAMADO,
+        )
+
+    @patch('sports.serializers.Convocatoria.objects.bulk_create')
+    @patch('sports.serializers.Convocatoria.objects.filter')
+    @patch('sports.serializers.JugadorEquipo.objects.filter')
+    def test_genera_convocatorias_de_jugadores_activos_del_equipo(
+        self, relaciones_filter, convocatorias_filter, bulk_create,
+    ):
+        jugadores = [uuid.uuid4(), uuid.uuid4()]
+        relaciones_filter.return_value.values_list.return_value.distinct.return_value = jugadores
+        convocatorias_filter.return_value.values_list.return_value = []
+
+        creadas = generar_convocatorias_evento(self.evento)
+
+        self.assertEqual(creadas, 2)
+        relaciones_filter.assert_called_once_with(
+            equipo_id=self.evento.equipo_id,
+            activo=True,
+            jugador__estado='ACTIVO',
+            jugador__club_id=self.evento.club_id,
+        )
+        objetos = bulk_create.call_args.args[0]
+        self.assertEqual({item.jugador_id for item in objetos}, set(jugadores))
+        self.assertTrue(all(item.estado == Convocatoria.Estado.PENDIENTE for item in objetos))
+        bulk_create.assert_called_once_with(objetos, ignore_conflicts=True)
+
+    @patch('sports.serializers.Convocatoria.objects.bulk_create')
+    @patch('sports.serializers.Convocatoria.objects.filter')
+    @patch('sports.serializers.JugadorEquipo.objects.filter')
+    def test_no_duplica_convocatorias_existentes(
+        self, relaciones_filter, convocatorias_filter, bulk_create,
+    ):
+        existente = uuid.uuid4()
+        nuevo = uuid.uuid4()
+        relaciones_filter.return_value.values_list.return_value.distinct.return_value = [existente, nuevo]
+        convocatorias_filter.return_value.values_list.return_value = [existente]
+
+        creadas = generar_convocatorias_evento(self.evento)
+
+        self.assertEqual(creadas, 1)
+        objetos = bulk_create.call_args.args[0]
+        self.assertEqual([item.jugador_id for item in objetos], [nuevo])
+
+    @patch('sports.serializers.JugadorEquipo.objects.filter')
+    def test_evento_sin_equipo_no_rompe_creacion_automatica(self, relaciones_filter):
+        self.evento.equipo_id = None
+
+        creadas = generar_convocatorias_evento(self.evento, exigir_equipo=False)
+
+        self.assertEqual(creadas, 0)
+        relaciones_filter.assert_not_called()
+
+    def test_generacion_manual_exige_equipo(self):
+        self.evento.equipo_id = None
+
+        with self.assertRaises(serializers.ValidationError) as context:
+            generar_convocatorias_evento(self.evento)
+
+        self.assertIn('equipo', context.exception.detail)
+
+    def test_evento_cancelado_o_finalizado_no_permite_generar(self):
+        for estado in (Evento.Estado.CANCELADO, Evento.Estado.FINALIZADO):
+            with self.subTest(estado=estado):
+                self.evento.estado = estado
+                with self.assertRaises(serializers.ValidationError) as context:
+                    generar_convocatorias_evento(self.evento)
+                self.assertIn('evento', context.exception.detail)
+
+    @patch('sports.serializers.generar_convocatorias_evento')
+    @patch('rest_framework.serializers.ModelSerializer.create')
+    def test_crear_evento_con_equipo_genera_convocatorias(
+        self, model_create, generar_mock,
+    ):
+        model_create.return_value = self.evento
+        serializer = EventoSerializer()
+
+        resultado = EventoSerializer.create.__wrapped__(serializer, {})
+
+        self.assertIs(resultado, self.evento)
+        generar_mock.assert_called_once_with(self.evento, exigir_equipo=False)
+
+
+class ConvocatoriaSerializerTests(SimpleTestCase):
+    @patch('sports.serializers.Convocatoria.objects.filter')
+    def test_rechaza_convocatoria_duplicada(self, filter_mock):
+        club_id = uuid.uuid4()
+        evento = SimpleNamespace(
+            club_id=club_id,
+            equipo_id=None,
+            estado=Evento.Estado.PROGRAMADO,
+        )
+        jugador = SimpleNamespace(club_id=club_id, estado='ACTIVO')
+        filter_mock.return_value.exists.return_value = True
+
+        with self.assertRaises(serializers.ValidationError) as context:
+            ConvocatoriaSerializer().validate({'evento': evento, 'jugador': jugador})
+
+        self.assertIn('non_field_errors', context.exception.detail)
+
+    def test_rechaza_agregar_a_evento_cerrado(self):
+        club_id = uuid.uuid4()
+        jugador = SimpleNamespace(club_id=club_id, estado='ACTIVO')
+        for estado in (Evento.Estado.CANCELADO, Evento.Estado.FINALIZADO):
+            evento = SimpleNamespace(club_id=club_id, equipo_id=None, estado=estado)
+            with self.subTest(estado=estado):
+                with self.assertRaises(serializers.ValidationError) as context:
+                    ConvocatoriaSerializer().validate({
+                        'evento': evento,
+                        'jugador': jugador,
+                    })
+                self.assertIn('evento', context.exception.detail)
+
+
+class ConvocatoriaViewSetTests(SimpleTestCase):
+    def test_quitar_convocatoria_marca_no_convocado(self):
+        convocatoria = SimpleNamespace(
+            estado=Convocatoria.Estado.PENDIENTE,
+            confirmado=None,
+            confirmado_en=None,
+            save=MagicMock(),
+            delete=MagicMock(),
+        )
+        view = ConvocatoriaViewSet()
+        view.get_object = MagicMock(return_value=convocatoria)
+
+        response = view.destroy(MagicMock(), pk='convocatoria-1')
+
+        self.assertEqual(convocatoria.estado, Convocatoria.Estado.NO_CONVOCADO)
+        convocatoria.save.assert_called_once_with(
+            update_fields=[
+                'estado', 'confirmado', 'confirmado_en', 'respuesta',
+                'motivo_rechazo', 'respondido_en', 'actualizado_en',
+            ],
+        )
+        convocatoria.delete.assert_not_called()
+        self.assertEqual(response.status_code, 204)
+
+    @patch('sports.views.Convocatoria.objects.filter')
+    @patch('sports.views.generar_convocatorias_evento')
+    def test_generacion_manual_devuelve_cantidad(self, generar_mock, filter_mock):
+        evento = SimpleNamespace(pk=uuid.uuid4())
+        generar_mock.return_value = 3
+        filter_mock.return_value.count.return_value = 5
+        view = EventoViewSet()
+        view.get_object = MagicMock(return_value=evento)
+
+        response = EventoViewSet.generar_convocatorias.__wrapped__(
+            view,
+            MagicMock(),
+            pk=str(evento.pk),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['convocatorias_creadas'], 3)
+        self.assertEqual(response.data['total'], 5)
+
+    @patch('sports.views.Convocatoria.objects.filter')
+    def test_resumen_devuelve_contadores(self, filter_mock):
+        evento = SimpleNamespace(pk=uuid.uuid4())
+        filter_mock.return_value.values.return_value.annotate.return_value = [
+            {'estado': Convocatoria.Estado.PENDIENTE, 'total': 2},
+            {'estado': Convocatoria.Estado.CONFIRMADO, 'total': 3},
+            {'estado': Convocatoria.Estado.RECHAZADO, 'total': 1},
+            {'estado': Convocatoria.Estado.NO_CONVOCADO, 'total': 4},
+        ]
+        view = EventoViewSet()
+        view.get_object = MagicMock(return_value=evento)
+
+        response = view.resumen_convocatorias(MagicMock(), pk=str(evento.pk))
+
+        self.assertEqual(response.data, {
+            'evento': str(evento.pk),
+            'total': 10,
+            'pendientes': 2,
+            'confirmados': 3,
+            'rechazados': 1,
+            'no_convocados': 4,
+        })
+
+
+class RespuestaConvocatoriaTests(SimpleTestCase):
+    def build_convocatoria(self, **overrides):
+        values = {
+            'pk': uuid.uuid4(),
+            'estado': Convocatoria.Estado.PENDIENTE,
+            'evento': SimpleNamespace(estado=Evento.Estado.PROGRAMADO),
+            'respuesta': None,
+            'motivo_rechazo': None,
+            'respondido_en': None,
+            'actualizado_en': None,
+            'confirmado': None,
+            'confirmado_en': None,
+            'save': MagicMock(),
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def build_view(self, convocatoria):
+        view = ConvocatoriaViewSet()
+        view.get_object = MagicMock(return_value=convocatoria)
+        response_serializer = MagicMock()
+        response_serializer.data = {'estado': convocatoria.estado}
+        view.get_serializer = MagicMock(return_value=response_serializer)
+        return view
+
+    def test_confirmar_convocatoria_valida(self):
+        convocatoria = self.build_convocatoria()
+        view = self.build_view(convocatoria)
+
+        response = view.confirmar(SimpleNamespace(data={
+            'respuesta': Convocatoria.Estado.CONFIRMADO,
+        }), pk=str(convocatoria.pk))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(convocatoria.estado, Convocatoria.Estado.CONFIRMADO)
+        self.assertTrue(convocatoria.confirmado)
+
+    def test_rechazar_convocatoria_valida(self):
+        convocatoria = self.build_convocatoria()
+        view = self.build_view(convocatoria)
+
+        response = view.rechazar(SimpleNamespace(data={
+            'respuesta': Convocatoria.Estado.RECHAZADO,
+        }), pk=str(convocatoria.pk))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(convocatoria.estado, Convocatoria.Estado.RECHAZADO)
+        self.assertFalse(convocatoria.confirmado)
+
+    def test_rechazar_convocatoria_guarda_motivo(self):
+        convocatoria = self.build_convocatoria()
+        view = self.build_view(convocatoria)
+
+        view.rechazar(SimpleNamespace(data={
+            'respuesta': Convocatoria.Estado.RECHAZADO,
+            'motivo_rechazo': 'Motivo familiar',
+        }), pk=str(convocatoria.pk))
+
+        self.assertEqual(convocatoria.motivo_rechazo, 'Motivo familiar')
+
+    def test_no_confirma_convocatoria_no_convocado(self):
+        convocatoria = self.build_convocatoria(
+            estado=Convocatoria.Estado.NO_CONVOCADO,
+        )
+        view = self.build_view(convocatoria)
+        with self.assertRaises(serializers.ValidationError) as context:
+            view.confirmar(SimpleNamespace(data={
+                'respuesta': Convocatoria.Estado.CONFIRMADO,
+            }), pk=str(convocatoria.pk))
+        self.assertIn('estado', context.exception.detail)
+
+    def test_no_responde_evento_cancelado(self):
+        convocatoria = self.build_convocatoria(
+            evento=SimpleNamespace(estado=Evento.Estado.CANCELADO),
+        )
+        view = self.build_view(convocatoria)
+        with self.assertRaises(serializers.ValidationError) as context:
+            view.rechazar(SimpleNamespace(data={
+                'respuesta': Convocatoria.Estado.RECHAZADO,
+            }), pk=str(convocatoria.pk))
+        self.assertIn('evento', context.exception.detail)
+
+    def test_registra_respondido_en(self):
+        convocatoria = self.build_convocatoria()
+        view = self.build_view(convocatoria)
+
+        view.confirmar(SimpleNamespace(data={
+            'respuesta': Convocatoria.Estado.CONFIRMADO,
+        }), pk=str(convocatoria.pk))
+
+        self.assertIsNotNone(convocatoria.respondido_en)
+        convocatoria.save.assert_called_once()
+
+    @patch('sports.views.ConvocatoriaSerializer')
+    @patch('sports.views.Convocatoria.objects.select_related')
+    def test_consultar_convocatorias_por_jugador(
+        self, select_related, serializer_class,
+    ):
+        jugador = SimpleNamespace(pk=uuid.uuid4())
+        queryset = MagicMock()
+        select_related.return_value.filter.return_value.order_by.return_value = queryset
+        serializer_class.return_value.data = []
+        view = JugadorViewSet()
+        view.get_object = MagicMock(return_value=jugador)
+
+        response = view.convocatorias(MagicMock(), pk=str(jugador.pk))
+
+        select_related.return_value.filter.assert_called_once_with(jugador=jugador)
+        serializer_class.assert_called_once_with(queryset, many=True)
+        self.assertEqual(response.status_code, 200)
+
+    @patch('sports.views.TutorJugador.objects.filter')
+    def test_consultar_pendientes_padre_como_anonimo(self, tutor_filter):
+        initial = MagicMock()
+        pending = MagicMock()
+        final = MagicMock()
+        initial.filter.return_value = pending
+        pending.exclude.return_value = final
+        view = ConvocatoriaViewSet()
+        view.get_queryset = MagicMock(return_value=initial)
+        output = MagicMock(data=[])
+        view.get_serializer = MagicMock(return_value=output)
+        request = SimpleNamespace(user=SimpleNamespace(pk=None))
+
+        response = view.pendientes_padre(request)
+
+        initial.filter.assert_called_once_with(estado=Convocatoria.Estado.PENDIENTE)
+        pending.exclude.assert_called_once_with(evento__estado=Evento.Estado.CANCELADO)
+        tutor_filter.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+
+    def test_respuesta_duplicada_devuelve_400_y_no_500(self):
+        convocatoria = self.build_convocatoria(
+            estado=Convocatoria.Estado.CONFIRMADO,
+            respuesta=Convocatoria.Estado.CONFIRMADO,
+        )
+        view = self.build_view(convocatoria)
+        with self.assertRaises(serializers.ValidationError) as context:
+            view.confirmar(SimpleNamespace(data={
+                'respuesta': Convocatoria.Estado.CONFIRMADO,
+            }), pk=str(convocatoria.pk))
+        self.assertIn('respuesta', context.exception.detail)
+        convocatoria.save.assert_not_called()
 
 
 class JugadorSerializerTests(SimpleTestCase):

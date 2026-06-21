@@ -2,6 +2,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from payments.models import ClubPlan
@@ -10,6 +11,7 @@ from payments.serializers import (
     PlanSaaSSerializer,
     SeleccionarPlanSaaSSerializer,
 )
+from users.models import EstadoUsuarioClub, RolUsuario, UsuarioClub
 
 from .models import Club
 from .serializers import ClubConfigSerializer, ClubSerializer
@@ -64,9 +66,15 @@ class ClubViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='seleccionar-plan')
     def seleccionar_plan(self, request, pk=None):
-        # TODO: validar que solo el administrador del club pueda seleccionar
-        # el plan SaaS de su club.
         club = self.get_object()
+        if not UsuarioClub.objects.filter(
+            usuario_id=getattr(request.user, 'pk', None),
+            club=club,
+            rol=RolUsuario.COORDINADOR,
+            estado=EstadoUsuarioClub.ACTIVO,
+        ).exists():
+            raise PermissionDenied('Solo el administrador del club puede seleccionar el plan.')
+
         serializer = SeleccionarPlanSaaSSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         suscripcion = serializer.save(club=club)

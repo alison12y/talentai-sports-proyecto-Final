@@ -13,7 +13,8 @@ from sports.models import (
     JugadorEquipo,
     TutorJugador,
 )
-from users.models import Usuario, UsuarioClub
+from users.models import EstadoUsuarioClub, RolUsuario, Usuario, UsuarioClub
+from users.passwords import make_usuario_password
 
 
 def update_instance(instance, fields):
@@ -61,7 +62,7 @@ class Command(BaseCommand):
 
         coordinador = self.create_or_update_usuario(
             email='coordinador@talentai.com',
-            password_hash='admin123',
+            password='admin123',
             nombre='Carlos',
             apellido='Mendoza',
             telefono='70000001',
@@ -69,7 +70,7 @@ class Command(BaseCommand):
         )
         entrenador = self.create_or_update_usuario(
             email='entrenador@talentai.com',
-            password_hash='admin123',
+            password='admin123',
             nombre='Luis',
             apellido='Rojas',
             telefono='70000002',
@@ -77,16 +78,22 @@ class Command(BaseCommand):
         )
         padre = self.create_or_update_usuario(
             email='padre@talentai.com',
-            password_hash='admin123',
+            password='admin123',
             nombre='Mario',
             apellido='Vargas',
             telefono='70000003',
             now=now,
         )
 
-        self.create_or_update_usuario_club(coordinador, club, 'COORDINADOR', now)
-        self.create_or_update_usuario_club(entrenador, club, 'ENTRENADOR', now)
-        self.create_or_update_usuario_club(padre, club, 'PADRE', now)
+        self.create_or_update_usuario_club(
+            coordinador, club, RolUsuario.COORDINADOR, now,
+        )
+        self.create_or_update_usuario_club(
+            entrenador, club, RolUsuario.ENTRENADOR, now,
+        )
+        self.create_or_update_usuario_club(
+            padre, club, RolUsuario.PADRE, now,
+        )
 
         equipo, created = Equipo.objects.get_or_create(
             club=club,
@@ -188,7 +195,8 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS('Datos iniciales creados/actualizados correctamente.'))
 
-    def create_or_update_usuario(self, email, password_hash, nombre, apellido, telefono, now):
+    def create_or_update_usuario(self, email, password, nombre, apellido, telefono, now):
+        password_hash = make_usuario_password(password)
         usuario, created = Usuario.objects.get_or_create(
             email=email,
             defaults={
@@ -222,10 +230,13 @@ class Command(BaseCommand):
             rol=rol,
             defaults={
                 'id': uuid.uuid4(),
-                'estado': 'ACTIVO',
+                'estado': EstadoUsuarioClub.ACTIVO,
                 'creado_en': now,
             },
         )
         if not created:
-            update_instance(usuario_club, {'estado': 'ACTIVO'})
+            update_instance(
+                usuario_club,
+                {'estado': EstadoUsuarioClub.ACTIVO},
+            )
         return usuario_club

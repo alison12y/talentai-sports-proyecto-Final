@@ -112,10 +112,15 @@ function LoginPage() {
     try {
       const { data } = await api.post('/auth/login/', { email: cleanEmail, password: login.password })
       if (data.user) localStorage.setItem('user', JSON.stringify(data.user))
-      const role = data.role || data.rol || data.user?.role || data.user?.rol
-      const token = data.token || data.user?.token || data.token_id
-      if (role) localStorage.setItem('role', role)
-      if (token) localStorage.setItem('token', token)
+      const memberships = Array.isArray(data.memberships) ? data.memberships : []
+      localStorage.setItem('memberships', JSON.stringify(memberships))
+      if (memberships.length) {
+        localStorage.setItem('activeMembership', JSON.stringify(memberships[0]))
+      } else {
+        localStorage.removeItem('activeMembership')
+      }
+      localStorage.removeItem('role')
+      localStorage.removeItem('token')
       navigate('/dashboard')
     } catch {
       setError('Credenciales incorrectas o usuario no autorizado')

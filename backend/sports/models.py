@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models.functions import Lower
+from django.utils import timezone
 
 
 class CategoriaDeportiva(models.Model):
@@ -154,8 +155,11 @@ class EvolucionFisica(models.Model):
     altura_cm = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     velocidad_40m = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
     resistencia = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    test_cooper = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     notas = models.TextField(null=True, blank=True)
     creado_en = models.DateTimeField()
+    actualizado_en = models.DateTimeField(default=timezone.now)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         managed = False
@@ -163,6 +167,17 @@ class EvolucionFisica(models.Model):
 
 
 class Evento(models.Model):
+    class Tipo(models.TextChoices):
+        ENTRENAMIENTO = 'ENTRENAMIENTO', 'Entrenamiento'
+        PARTIDO = 'PARTIDO', 'Partido'
+        REUNION = 'REUNION', 'Reunión'
+        OTRO = 'OTRO', 'Otro'
+
+    class Estado(models.TextChoices):
+        PROGRAMADO = 'PROGRAMADO', 'Programado'
+        CANCELADO = 'CANCELADO', 'Cancelado'
+        FINALIZADO = 'FINALIZADO', 'Finalizado'
+
     id = models.UUIDField(primary_key=True)
     club = models.ForeignKey(
         'clubs.Club',
@@ -176,12 +191,19 @@ class Evento(models.Model):
         null=True,
         blank=True,
     )
-    tipo = models.CharField(max_length=100)
+    tipo = models.CharField(max_length=100, choices=Tipo.choices)
     titulo = models.CharField(max_length=255)
     descripcion = models.TextField(null=True, blank=True)
+    rival = models.CharField(max_length=255, null=True, blank=True)
     ubicacion = models.CharField(max_length=255, null=True, blank=True)
     fecha_inicio = models.DateTimeField()
     fecha_fin = models.DateTimeField()
+    estado = models.CharField(
+        max_length=100,
+        choices=Estado.choices,
+        default=Estado.PROGRAMADO,
+    )
+    activo = models.BooleanField(default=True)
     creado_en = models.DateTimeField()
     actualizado_en = models.DateTimeField()
 
@@ -191,6 +213,12 @@ class Evento(models.Model):
 
 
 class Convocatoria(models.Model):
+    class Estado(models.TextChoices):
+        PENDIENTE = 'PENDIENTE', 'Pendiente'
+        CONFIRMADO = 'CONFIRMADO', 'Confirmado'
+        RECHAZADO = 'RECHAZADO', 'Rechazado'
+        NO_CONVOCADO = 'NO_CONVOCADO', 'No convocado'
+
     id = models.UUIDField(primary_key=True)
     evento = models.ForeignKey(
         Evento,
@@ -204,15 +232,36 @@ class Convocatoria(models.Model):
     )
     confirmado = models.BooleanField(null=True, blank=True)
     confirmado_en = models.DateTimeField(null=True, blank=True)
+    estado = models.CharField(
+        max_length=100,
+        choices=Estado.choices,
+        default=Estado.PENDIENTE,
+    )
+    fecha_notificacion = models.DateTimeField(null=True, blank=True)
     notas = models.TextField(null=True, blank=True)
+    respuesta = models.CharField(max_length=20, null=True, blank=True)
+    motivo_rechazo = models.TextField(null=True, blank=True)
+    respondido_en = models.DateTimeField(null=True, blank=True)
+    actualizado_en = models.DateTimeField(default=timezone.now)
     creado_en = models.DateTimeField()
 
     class Meta:
         managed = False
         db_table = 'convocatoria'
+        constraints = [
+            models.UniqueConstraint(
+                fields=('evento', 'jugador'),
+                name='unique_convocatoria_evento_jugador',
+            ),
+        ]
 
 
 class Asistencia(models.Model):
+    class Estado(models.TextChoices):
+        PRESENTE = 'PRESENTE', 'Presente'
+        AUSENTE = 'AUSENTE', 'Ausente'
+        JUSTIFICADO = 'JUSTIFICADO', 'Justificado'
+
     id = models.UUIDField(primary_key=True)
     evento = models.ForeignKey(
         Evento,
@@ -224,10 +273,20 @@ class Asistencia(models.Model):
         models.DO_NOTHING,
         db_column='jugador_id',
     )
-    presente = models.BooleanField()
-    justificado = models.BooleanField()
+    # Campos legados conservados para compatibilidad con la tabla existente.
+    presente = models.BooleanField(default=False)
+    justificado = models.BooleanField(default=False)
     motivo_ausencia = models.TextField(null=True, blank=True)
-    creado_en = models.DateTimeField()
+    creado_en = models.DateTimeField(default=timezone.now)
+    estado = models.CharField(
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.AUSENTE,
+    )
+    motivo = models.TextField(null=True, blank=True)
+    registrado_en = models.DateTimeField(default=timezone.now)
+    actualizado_en = models.DateTimeField(default=timezone.now)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         managed = False
@@ -256,6 +315,7 @@ class Partido(models.Model):
     goles_rival = models.IntegerField()
     resultado = models.CharField(max_length=100, null=True, blank=True)
     notas_tacticas = models.TextField(null=True, blank=True)
+    activo = models.BooleanField(default=True)
     creado_en = models.DateTimeField()
     actualizado_en = models.DateTimeField()
 
@@ -284,6 +344,8 @@ class EstadisticaPartido(models.Model):
     valoracion = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
     notas = models.TextField(null=True, blank=True)
     creado_en = models.DateTimeField()
+    actualizado_en = models.DateTimeField(default=timezone.now)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         managed = False

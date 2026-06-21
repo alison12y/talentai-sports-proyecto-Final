@@ -2,6 +2,18 @@ from django.db import models
 from django.utils import timezone
 
 
+class RolUsuario(models.TextChoices):
+    COORDINADOR = 'COORDINADOR', 'Coordinador'
+    ENTRENADOR = 'ENTRENADOR', 'Entrenador'
+    PADRE = 'PADRE', 'Padre'
+    JUGADOR = 'JUGADOR', 'Jugador'
+
+
+class EstadoUsuarioClub(models.TextChoices):
+    ACTIVO = 'ACTIVO', 'Activo'
+    INACTIVO = 'INACTIVO', 'Inactivo'
+
+
 class Usuario(models.Model):
     id = models.UUIDField(primary_key=True)
     email = models.EmailField(max_length=254, unique=True)
