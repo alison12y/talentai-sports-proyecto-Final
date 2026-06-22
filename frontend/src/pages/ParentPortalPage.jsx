@@ -78,6 +78,26 @@ const eventTypeLabels = {
   OTRO: 'Otro',
 }
 
+const paymentStatusLabels = {
+  PENDIENTE: 'Pendiente',
+  VENCIDO: 'Vencido',
+  PAGADO: 'Pagado',
+  CANCELADO: 'Cancelado',
+  ANULADO: 'Anulado',
+}
+
+const formatDateOnly = (value, fallback = 'Sin fecha') => {
+  if (!value) return fallback
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-')
+    const date = new Date(year, month - 1, day)
+    return new Intl.DateTimeFormat('es-BO', { dateStyle: 'medium' }).format(date)
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('es-BO', { dateStyle: 'medium' }).format(date)
+}
+
 const formatDateTime = (value, fallback = 'Sin fecha disponible') => {
   if (!value) return fallback
   const date = new Date(value)
@@ -112,6 +132,11 @@ function ParentPortalPage() {
   const [callUps, setCallUps] = useState(
     initialCache.callUpsByPlayer[initialPlayerId] || [],
   )
+  const [payments, setPayments] = useState([])
+  const [isLoadingPayments, setIsLoadingPayments] = useState(false)
+  const [processingPayment, setProcessingPayment] = useState(null)
+  const [confirmingPayment, setConfirmingPayment] = useState(null)
+  const [paymentError, setPaymentError] = useState('')
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [isLoading, setIsLoading] = useState(() => navigator.onLine && !initialCache.players.length)
   const [isLoadingCallUps, setIsLoadingCallUps] = useState(
@@ -133,6 +158,14 @@ function ParentPortalPage() {
     cacheCallUps(selectedPlayerId, loadedCallUps)
     setCallUps(loadedCallUps)
     return loadedCallUps
+  }, [])
+
+  const loadPayments = useCallback(async (selectedPlayerId) => {
+    // Use the global pagos endpoint filtered by jugador to retrieve all states
+    const { data } = await api.get(`/pagos/?jugador=${selectedPlayerId}`)
+    const loadedPayments = asList(data)
+    setPayments(loadedPayments)
+    return loadedPayments
   }, [])
 
   const queueOfflineAction = (callUp, type, reason = null) => {
@@ -334,6 +367,41 @@ function ParentPortalPage() {
     }
   }, [isOnline, loadCallUps, playerId])
 
+  useEffect(() => {
+    if (!playerId) return undefined
+    if (!isOnline) {
+      const offlinePaymentLoad = window.setTimeout(() => {
+        setPayments([])
+        setIsLoadingPayments(false)
+      }, 0)
+      return () => window.clearTimeout(offlinePaymentLoad)
+    }
+
+    let isActive = true
+    const onlineLoad = window.setTimeout(() => {
+      setIsLoadingPayments(true)
+      loadPayments(playerId)
+        .catch((error) => {
+          if (!isActive) return
+          if (isNetworkError(error)) {
+            setIsOnline(false)
+          } else {
+            setPageError(requestErrorMessage(
+              error,
+              'No pudimos cargar los pagos de las cuotas.',
+            ))
+          }
+        })
+        .finally(() => {
+          if (isActive) setIsLoadingPayments(false)
+        })
+    }, 0)
+    return () => {
+      isActive = false
+      window.clearTimeout(onlineLoad)
+    }
+  }, [isOnline, loadPayments, playerId])
+
   const eventById = useMemo(() => new Map(
     events.map((event) => [String(event.id), event]),
   ), [events])
@@ -442,6 +510,64 @@ function ParentPortalPage() {
     }
   }
 
+  const initiatePayment = async (payment) => {
+    setProcessingPayment(payment.id)
+    setPageError('')
+    setPaymentError('')
+    setSuccess('')
+    try {
+      await api.post(`/pagos/${payment.id}/iniciar-pago-stripe/`, {})
+      setConfirmingPayment(payment)
+    } catch (error) {
+      if (isNetworkError(error)) {
+        setIsOnline(false)
+      } else {
+        setPaymentError(requestErrorMessage(error, 'No se pudo iniciar el pago.'))
+      }
+    } finally {
+      setProcessingPayment(null)
+    }
+  }
+    const confirmStripePayment = async () => {
+    if (!confirmingPayment) return
+
+    setProcessingPayment(confirmingPayment.id)
+    setPaymentError('')
+
+    try {
+      const payload = {
+        referencia: `STRIPE-${Date.now()}`,
+      }
+
+      const { data } = await api.post(
+        `/pagos/${confirmingPayment.id}/confirmar-pago-stripe/`,
+        payload,
+      )
+
+      setPayments((prev) =>
+        prev.map((p) => (String(p.id) === String(data.id) ? { ...p, ...data } : p)),
+      )
+
+      setConfirmingPayment(null)
+
+      try {
+        await loadPayments(playerId)
+      } catch {
+        // Si falla la recarga, se mantiene el pago actualizado localmente.
+      }
+
+      setSuccess('Pago realizado correctamente.')
+    } catch (error) {
+      if (isNetworkError(error)) {
+        setIsOnline(false)
+      } else {
+        setPaymentError(requestErrorMessage(error, 'No se pudo confirmar el pago.'))
+      }
+    } finally {
+      setProcessingPayment(null)
+    }
+  }
+
   return (
     <section className="page page-fluid parent-portal-page">
       <div className="page-header parent-portal-header">
@@ -455,7 +581,7 @@ function ParentPortalPage() {
 
       <section className="parent-player-card" aria-label="Seleccionar jugador">
         <div><span className="eyebrow">Jugador</span><strong>{selectedPlayer ? `${selectedPlayer.nombre} ${selectedPlayer.apellido}` : 'Sin jugador seleccionado'}</strong><small>{selectedPlayer?.categoria || 'Selecciona un hijo para ver sus convocatorias'}</small></div>
-        <label>Seleccionar hijo<select value={playerId} onChange={(event) => { const nextPlayerId = event.target.value; setIsLoadingCallUps(isOnline); setPageError(''); setPlayerId(nextPlayerId); setSuccess(''); updateCache({ selectedPlayerId: nextPlayerId }); if (!isOnline) setCallUps(readCache().callUpsByPlayer[nextPlayerId] || []) }} disabled={isLoading || !players.length}>{!players.length && <option value="">No hay jugadores disponibles</option>}{players.map((player) => <option key={player.id} value={player.id}>{player.nombre} {player.apellido}</option>)}</select></label>
+        <label>Seleccionar hijo<select value={playerId} onChange={(event) => { const nextPlayerId = event.target.value; setIsLoadingCallUps(isOnline); setIsLoadingPayments(isOnline); setPageError(''); setPaymentError(''); setPlayerId(nextPlayerId); setSuccess(''); setConfirmingPayment(null); updateCache({ selectedPlayerId: nextPlayerId }); if (!isOnline) { setCallUps(readCache().callUpsByPlayer[nextPlayerId] || []); setPayments([]) } }} disabled={isLoading || !players.length}>{!players.length && <option value="">No hay jugadores disponibles</option>}{players.map((player) => <option key={player.id} value={player.id}>{player.nombre} {player.apellido}</option>)}</select></label>
       </section>
 
       <section className="parent-callups-section">
@@ -479,7 +605,26 @@ function ParentPortalPage() {
         )}
       </section>
 
+      <section className="parent-payments-section">
+        <div className="categories-list-heading"><div><h2>Historial de pagos</h2><p>{payments.length} {payments.length === 1 ? 'pago encontrado' : 'pagos encontrados'}</p></div></div>
+        {isLoading || isLoadingPayments ? <div className="categories-empty"><span className="clubs-loader" /><strong>Cargando pagos...</strong></div> : !players.length ? <div className="categories-empty"><span className="categories-empty-icon">TS</span><strong>No hay jugadores vinculados</strong><p>Cuando exista un jugador asociado podrás consultar aquí sus pagos.</p></div> : !payments.length ? <div className="categories-empty"><span className="categories-empty-icon">✓</span><strong>No existen pagos registrados para este jugador.</strong></div> : (
+          <div className="parent-payments-grid">
+            {payments.map((payment) => {
+              const isBusy = processingPayment === payment.id
+              const canPay = ['PENDIENTE', 'VENCIDO'].includes(String(payment.estado || '').toUpperCase())
+              return <article className="parent-payment-card" key={payment.id}>
+                <div className="parent-payment-card-top"><div><span className="category-card-kicker">Cuota Social</span><h3>{payment.concepto || 'Cuota'}</h3></div><span className={`payment-status payment-status-${payment.estado.toLowerCase()}`}>{paymentStatusLabels[payment.estado] || payment.estado}</span></div>
+                <dl className="parent-payment-details"><div><dt>Monto</dt><dd>{payment.monto} {payment.moneda}</dd></div><div><dt>Vencimiento</dt><dd>{formatDateOnly(payment.fecha_vencimiento, 'Sin fecha')}</dd></div>{payment.fecha_pago && <div><dt>Pagado</dt><dd>{formatDateOnly(payment.fecha_pago)}</dd></div>}{payment.metodo_pago && <div><dt>Método</dt><dd>{payment.metodo_pago}</dd></div>}{payment.referencia && <div><dt>Referencia</dt><dd>{payment.referencia}</dd></div>}</dl>
+                {canPay && <div className="parent-payment-actions"><button type="button" className="button-primary" onClick={() => initiatePayment(payment)} disabled={isBusy}>{isBusy ? 'Procesando...' : 'Pagar'}</button></div>}
+              </article>
+            })}
+          </div>
+        )}
+      </section>
+
       {rejectingCallUp && <div className="clubs-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeRejectModal() }}><section className="clubs-modal parent-reject-modal" role="dialog" aria-modal="true" aria-labelledby="reject-callup-title"><div className="clubs-modal-header"><div><span className="eyebrow">Responder convocatoria</span><h2 id="reject-callup-title">Rechazar convocatoria</h2><p>Indica brevemente por qué el jugador no podrá asistir.</p></div><button type="button" className="clubs-modal-close" onClick={closeRejectModal} aria-label="Cerrar formulario">×</button></div><form className="parent-reject-form" onSubmit={rejectCallUp}><label className="clubs-form-group">Motivo del rechazo <span>*</span><textarea value={rejectionReason} onChange={(event) => { setRejectionReason(event.target.value); setFormError('') }} rows="4" placeholder="Ej.: cita médica o compromiso familiar" autoFocus /></label>{formError && <div className="clubs-alert clubs-alert-error" role="alert">{formError}</div>}<div className="clubs-form-actions"><button type="button" className="button-ghost" onClick={closeRejectModal} disabled={Boolean(pendingAction)}>Cancelar</button><button type="submit" className="button-primary" disabled={Boolean(pendingAction)}>{pendingAction ? 'Guardando...' : 'Confirmar rechazo'}</button></div></form></section></div>}
+
+      {confirmingPayment && <div className="clubs-modal-backdrop" role="presentation" onMouseDown={() => { setConfirmingPayment(null); setPaymentError('') }}><section className="clubs-modal parent-payment-modal" role="dialog" aria-modal="true" aria-labelledby="payment-confirm-title"><div className="clubs-modal-header"><div><span className="eyebrow">Confirmar pago</span><h2 id="payment-confirm-title">Checkout de pago</h2><p>Confirma el pago de la cuota.</p></div><button type="button" className="clubs-modal-close" onClick={() => { setConfirmingPayment(null); setPaymentError('') }} aria-label="Cerrar" disabled={processingPayment}>×</button></div>{paymentError && <div className="clubs-alert clubs-alert-error" role="alert" style={{ margin: '12px' }}>{paymentError}</div>}<div className="clubs-modal-content"><p style={{ margin: '0 12px', fontSize: '14px', lineHeight: '1.5' }}><strong>Cuota:</strong> {confirmingPayment.concepto || 'Cuota'}<br/><strong>Monto:</strong> {confirmingPayment.monto} {confirmingPayment.moneda}</p></div><div className="clubs-form-actions" style={{ padding: '12px' }}><button type="button" className="button-ghost" onClick={() => { setConfirmingPayment(null); setPaymentError('') }} disabled={processingPayment}>Cancelar</button><button type="button" className="button-primary" onClick={confirmStripePayment} disabled={processingPayment}>{processingPayment ? 'Procesando...' : 'Confirmar pago'}</button></div></section></div>}
     </section>
   )
 }

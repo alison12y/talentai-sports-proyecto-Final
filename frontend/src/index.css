@@ -4145,11 +4145,54 @@ p {
 .parent-reject-form textarea { width: 100%; resize: vertical; padding: 12px 13px; border: 1px solid #cbd5e1; border-radius: 11px; color: var(--text); background: var(--panel); font: inherit; line-height: 1.45; outline: 0; }
 .parent-reject-form textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(37, 99, 235, .1); }
 
+/* Estilos para pagos y cuotas */
+.parent-payments-section {
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+.parent-payments-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.parent-payment-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+}
+.parent-payment-card::before { position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, var(--secondary), var(--accent)); content: ''; }
+.parent-payment-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.parent-payment-card-top h3 { margin: 5px 0 0; color: var(--text); font-size: 19px; }
+.parent-payment-details { display: grid; gap: 9px; margin: 0; }
+.parent-payment-details > div { display: flex; justify-content: space-between; gap: 14px; padding-bottom: 9px; border-bottom: 1px solid var(--border); }
+.parent-payment-details dt { color: var(--muted); font-size: 12px; font-weight: 800; }
+.parent-payment-details dd { margin: 0; color: var(--text); font-size: 12px; font-weight: 850; text-align: right; }
+.parent-payment-actions { display: grid; gap: 8px; margin-top: auto; }
+.parent-payment-actions button { width: 100%; }
+.parent-payment-actions button:disabled { opacity: .55; cursor: not-allowed; }
+
+.payment-status { display: inline-block; padding: 5px 10px; border-radius: 8px; font-size: 11px; font-weight: 900; letter-spacing: .03em; text-transform: uppercase; }
+.payment-status-pendiente { color: #b45309; background: #fef3c7; }
+.payment-status-vencido { color: #92400e; background: #fcd34d; }
+.payment-status-pagado { color: #166534; background: #bbf7d0; }
+.payment-status-anulado,
+.payment-status-cancelado { color: #7f1d1d; background: #fecaca; }
+
+.parent-payment-modal { width: min(500px, 100%); }
+.clubs-modal-content { padding: 12px 0; }
+
 @media (max-width: 760px) {
   .parent-portal-page { padding: 20px; }
   .parent-player-card { align-items: stretch; flex-direction: column; }
   .parent-player-card label { width: 100%; }
   .parent-callups-grid { grid-template-columns: 1fr; }
+  .parent-payments-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 520px) {
@@ -4158,4 +4201,8 @@ p {
   .parent-callup-card { padding: 17px; }
   .parent-callup-card-top { flex-direction: column; }
   .parent-callup-actions { grid-template-columns: 1fr; }
+  .parent-payments-section { padding: 16px; }
+  .parent-payment-card { padding: 17px; }
+  .parent-payment-card-top { flex-direction: column; }
+  .parent-payment-actions { grid-template-columns: 1fr; }
 }

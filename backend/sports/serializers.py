@@ -1075,14 +1075,83 @@ class CuotaSerializer(serializers.ModelSerializer):
 
 
 class PagoSerializer(serializers.ModelSerializer):
+    referencia_simulada = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+    )
+    nombre_jugador = serializers.SerializerMethodField()
+    nombre_del_jugador = serializers.SerializerMethodField()
+    concepto_cuota = serializers.SerializerMethodField()
+    concepto_de_cuota = serializers.SerializerMethodField()
+    concepto = serializers.SerializerMethodField()
+    tutor_nombre = serializers.SerializerMethodField()
+    tutor_contacto = serializers.SerializerMethodField()
+
     class Meta:
         model = Pago
         fields = (
+            'id', 'cuota', 'jugador', 'nombre_jugador', 'nombre_del_jugador',
+            'concepto_cuota', 'concepto_de_cuota', 'concepto',
+            'tutor_nombre', 'tutor_contacto',
+            'monto', 'moneda', 'estado',
+            'metodo_pago', 'fecha_vencimiento', 'fecha_pago', 'referencia',
+            'observaciones', 'creado_en', 'actualizado_en', 'referencia_simulada',
+        )
+        read_only_fields = (
             'id', 'cuota', 'jugador', 'monto', 'moneda', 'estado',
             'metodo_pago', 'fecha_vencimiento', 'fecha_pago', 'referencia',
             'observaciones', 'creado_en', 'actualizado_en',
         )
-        read_only_fields = fields
+
+    def get_nombre_jugador(self, obj):
+        return f"{obj.jugador.nombre} {obj.jugador.apellido}"
+
+    def get_nombre_del_jugador(self, obj):
+        return f"{obj.jugador.nombre} {obj.jugador.apellido}"
+
+    def get_concepto_cuota(self, obj):
+        return obj.cuota.concepto
+
+    def get_concepto_de_cuota(self, obj):
+        return obj.cuota.concepto
+
+    def get_concepto(self, obj):
+        return obj.cuota.concepto
+
+    def get_tutor_nombre(self, obj):
+        relacion = TutorJugador.objects.filter(
+            jugador=obj.jugador,
+            es_contacto_principal=True,
+        ).select_related('usuario').first()
+        if not relacion:
+            relacion = TutorJugador.objects.filter(
+                jugador=obj.jugador,
+            ).select_related('usuario').first()
+        if relacion:
+            return f"{relacion.usuario.nombre} {relacion.usuario.apellido}"
+        return None
+
+    def get_tutor_contacto(self, obj):
+        relacion = TutorJugador.objects.filter(
+            jugador=obj.jugador,
+            es_contacto_principal=True,
+        ).select_related('usuario').first()
+        if not relacion:
+            relacion = TutorJugador.objects.filter(
+                jugador=obj.jugador,
+            ).select_related('usuario').first()
+        if not relacion:
+            return None
+        return {
+            'id': relacion.id,
+            'usuario_id': relacion.usuario_id,
+            'nombre': relacion.usuario.nombre,
+            'apellido': relacion.usuario.apellido,
+            'telefono': relacion.usuario.telefono,
+            'correo': relacion.usuario.email,
+            'parentesco': relacion.parentesco,
+        }
 
 class JugadorSerializer(serializers.ModelSerializer):
     categoria = serializers.CharField(required=True, allow_blank=False)

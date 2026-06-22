@@ -236,6 +236,8 @@ class OnboardingCompleteSerializer(serializers.Serializer):
     admin = OnboardingAdminSerializer()
     club = OnboardingClubSerializer()
     plan_id = serializers.IntegerField(required=True, min_value=1)
+    metodo_pago = serializers.CharField(max_length=50, required=False, allow_blank=True, allow_null=True)
+    referencia = serializers.CharField(max_length=100, required=False, allow_blank=True, allow_null=True)
 
     def validate_plan_id(self, value):
         try:
@@ -250,6 +252,8 @@ class OnboardingCompleteSerializer(serializers.Serializer):
         admin_data = validated_data['admin']
         club_data = validated_data['club']
         plan = validated_data['plan_id']
+        metodo_pago = validated_data.get('metodo_pago', '')
+        referencia = validated_data.get('referencia', '')
         now = timezone.now()
 
         with transaction.atomic():
@@ -285,7 +289,11 @@ class OnboardingCompleteSerializer(serializers.Serializer):
                 creado_en=now,
             )
 
-            plan_serializer = SeleccionarPlanSaaSSerializer(data={'plan_id': plan.pk})
+            plan_serializer = SeleccionarPlanSaaSSerializer(data={
+                'plan_id': plan.pk,
+                'metodo_pago': metodo_pago,
+                'referencia': referencia,
+            })
             plan_serializer.is_valid(raise_exception=True)
             suscripcion = plan_serializer.save(club=club)
 

@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
@@ -389,7 +391,6 @@ class CuotaViewSet(viewsets.ModelViewSet):
         ).order_by('jugador__apellido', 'jugador__nombre')
         return Response(PagoSerializer(queryset, many=True).data)
 
-
 class PagoViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -400,6 +401,128 @@ class PagoViewSet(
     )
     serializer_class = PagoSerializer
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        jugador = self.request.query_params.get('jugador')
+        if jugador:
+            queryset = queryset.filter(jugador_id=jugador)
+        return queryset.order_by('-fecha_vencimiento', '-creado_en')
+
+    @action(detail=True, methods=['post'], url_path='iniciar-pago-stripe')
+    def iniciar_pago_stripe(self, request, pk=None):
+        """
+        Inicia el proceso de pago de una cuota pendiente.
+        Genera una sesión de checkout interna para el portal del padre.
+        """
+        pago = self.get_object()
+
+        if pago.estado not in (Pago.Estado.PENDIENTE, Pago.Estado.VENCIDO):
+            return Response(
+                {'detail': f'No se puede iniciar el pago. Estado actual: {pago.estado}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({
+            'checkout_url': f'/portal-padre?checkout_pago={pago.pk}',
+            'pago_id': str(pago.pk),
+            'estado': pago.estado,
+            'monto': str(pago.monto),
+            'moneda': pago.moneda,
+            'mensaje': 'Checkout de pago iniciado correctamente.',
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='confirmar-pago-stripe')
+    def confirmar_pago_stripe(self, request, pk=None):
+        """
+        Confirma el pago de una cuota mediante checkout.
+        Actualiza el pago como PAGADO y registra la referencia de transacción.
+        """
+        pago = self.get_object()
+
+        if pago.estado == Pago.Estado.PAGADO:
+            return Response(
+                {'detail': 'Este pago ya fue confirmado anteriormente.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if pago.estado == Pago.Estado.CANCELADO:
+            return Response(
+                {'detail': 'Este pago está cancelado y no puede procesarse.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if pago.estado not in (Pago.Estado.PENDIENTE, Pago.Estado.VENCIDO):
+            return Response(
+                {'detail': f'No se puede confirmar el pago. Estado actual: {pago.estado}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        referencia = request.data.get('referencia')
+        if not referencia:
+            referencia = f'STRIPE-{str(uuid.uuid4())[:8].upper()}'
+
+        pago.estado = Pago.Estado.PAGADO
+        pago.fecha_pago = timezone.now().date()
+        pago.metodo_pago = 'TARJETA'
+        pago.monto_pagado = pago.monto
+        pago.referencia = referencia
+        pago.actualizado_en = timezone.now()
+        pago.save()
+
+        return Response(PagoSerializer(pago).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='webhook-stripe')
+    def webhook_stripe(self, request):
+        """
+        Procesa el webhook de confirmación de pago de Stripe.
+        """
+        pago_id = request.data.get('pago_id')
+        referencia = request.data.get('referencia')
+
+        if not pago_id:
+            return Response(
+                {'detail': 'Falta el pago_id en el webhook.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            pago = Pago.objects.get(pk=pago_id)
+        except Pago.DoesNotExist:
+            return Response(
+                {'detail': 'Pago no encontrado.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if pago.estado == Pago.Estado.PAGADO:
+            return Response(
+                {'detail': 'Este pago ya fue confirmado anteriormente.', 'pago': PagoSerializer(pago).data},
+                status=status.HTTP_200_OK,
+            )
+
+        if pago.estado == Pago.Estado.CANCELADO:
+            return Response(
+                {'detail': 'Este pago está cancelado y no puede procesarse.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if pago.estado not in (Pago.Estado.PENDIENTE, Pago.Estado.VENCIDO):
+            return Response(
+                {'detail': f'No se puede procesar el webhook. Estado actual: {pago.estado}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not referencia:
+            referencia = f'STRIPE-{str(uuid.uuid4())[:8].upper()}'
+
+        pago.estado = Pago.Estado.PAGADO
+        pago.fecha_pago = timezone.now().date()
+        pago.metodo_pago = 'TARJETA'
+        pago.monto_pagado = pago.monto
+        pago.referencia = referencia
+        pago.actualizado_en = timezone.now()
+        pago.save()
+
+        return Response(PagoSerializer(pago).data, status=status.HTTP_200_OK)
 
 class AsistenciaViewSet(viewsets.ModelViewSet):
     queryset = Asistencia.objects.select_related('evento', 'jugador').filter(activo=True)
@@ -625,10 +748,21 @@ class JugadorViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def pagos(self, request, pk=None):
         jugador = self.get_object()
-        queryset = Pago.objects.select_related('cuota', 'jugador').filter(
-            jugador=jugador,
-            estado=Pago.Estado.PENDIENTE,
-        ).order_by('fecha_vencimiento')
+        # Obtener pagos según filtro, por defecto solo PENDIENTE
+        estado = request.query_params.get('estado') if hasattr(request, 'query_params') else None
+        if estado and isinstance(estado, str):
+            # Si se especifica un estado diferente, usarlo
+            queryset = Pago.objects.select_related('cuota', 'jugador').filter(
+                jugador=jugador,
+                estado=estado,
+            )
+        else:
+            # Por defecto, retorna solo PENDIENTE
+            queryset = Pago.objects.select_related('cuota', 'jugador').filter(
+                jugador=jugador,
+                estado=Pago.Estado.PENDIENTE,
+            )
+        queryset = queryset.order_by('fecha_vencimiento')
         return Response(PagoSerializer(queryset, many=True).data)
 
 

@@ -22,6 +22,10 @@ const readApiError = (error, fallback) => {
   if (!data) return fallback
   if (typeof data === 'string') return data
   for (const field of [
+    'detail',
+    'error',
+    'message',
+    'non_field_errors',
     'club',
     'equipo',
     'concepto',
@@ -32,12 +36,17 @@ const readApiError = (error, fallback) => {
     'fecha_vencimiento',
     'estado',
     'jugadores',
-    'detail',
-    'non_field_errors',
   ]) {
     const value = data[field]
     const message = Array.isArray(value) ? value[0] : value
     if (typeof message === 'string') return message
+  }
+  if (typeof data === 'object') {
+    const values = Object.values(data)
+    for (const value of values) {
+      const message = Array.isArray(value) ? value[0] : value
+      if (typeof message === 'string') return message
+    }
   }
   return fallback
 }
@@ -262,6 +271,11 @@ function CuotasPage() {
     }
   }
 
+  const refreshPayments = async () => {
+    if (!paymentsCuota) return
+    await openPayments(paymentsCuota)
+  }
+
   const generatePayments = async (cuota) => {
     setPendingAction(`generate:${cuota.id}`)
     setPageError('')
@@ -269,6 +283,7 @@ function CuotasPage() {
     try {
       const { data } = await api.post(`/cuotas/${cuota.id}/generar-pagos/`)
       setSuccess(`Pagos generados: ${data.pagos_creados || 0} nuevos de ${data.total || 0} jugadores.`)
+      await loadCuotas()
       if (paymentsCuota?.id === cuota.id) await openPayments(cuota)
     } catch (error) {
       setPageError(readApiError(error, 'No se pudieron generar los pagos de la cuota.'))
@@ -477,6 +492,13 @@ function CuotasPage() {
                       <div>
                         <strong>{playerName(payment)}</strong>
                         <small>Vence {payment.fecha_vencimiento}</small>
+                        {payment.estado === 'PAGADO' && (
+                          <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--muted)' }}>
+                            <div>Pagado: {payment.fecha_pago || 'Sin fecha'}</div>
+                            <div>Método: {payment.metodo_pago || 'N/A'}</div>
+                            <div>Referencia: {payment.referencia || 'N/A'}</div>
+                          </div>
+                        )}
                       </div>
                       <span className={`payment-state payment-state-${String(payment.estado || '').toLowerCase()}`}>
                         {payment.estado}
@@ -488,6 +510,7 @@ function CuotasPage() {
               </>
             )}
             <div className="clubs-form-actions category-detail-actions">
+              <button type="button" className="button-secondary" onClick={refreshPayments} disabled={isPaymentsLoading}>Refrescar pagos</button>
               <button type="button" className="button-ghost" onClick={() => setIsPaymentsOpen(false)}>Cerrar</button>
               <button type="button" className="button-primary" onClick={() => generatePayments(paymentsCuota)} disabled={pendingAction === `generate:${paymentsCuota.id}` || paymentsCuota.estado !== 'ACTIVA'}>
                 {pendingAction === `generate:${paymentsCuota.id}` ? 'Generando...' : 'Generar pagos'}

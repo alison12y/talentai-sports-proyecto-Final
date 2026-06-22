@@ -61,6 +61,9 @@ function LoginPage() {
     email: '', nombre: '', apellido: '', telefono: '', password: '', confirmPassword: '',
     clubNombre: '', clubDireccion: '', clubTelefono: '', clubEmail: '', clubCiudad: '',
     plan: '', planId: null, paymentMethod: 'TARJETA',
+    cardNumber: '', cardName: '', cardExpiry: '', cardCvv: '',
+    paymentReference: '', paymentObservation: '', paymentFile: null,
+    isPaymentValidated: false,
   })
 
   useEffect(() => {
@@ -235,6 +238,25 @@ function LoginPage() {
       return setError('El catálogo real de planes no está disponible. Vuelve a Planes e inténtalo nuevamente antes de guardar.')
     }
 
+    const payErrors = {}
+    if (onboarding.paymentMethod === 'TARJETA') {
+      const num = onboarding.cardNumber.replace(/\s/g, '')
+      if (!/^\d{13,19}$/.test(num)) payErrors.cardNumber = 'Número de tarjeta inválido'
+      if (!onboarding.cardName.trim()) payErrors.cardName = 'El nombre es obligatorio'
+      if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(onboarding.cardExpiry)) payErrors.cardExpiry = 'Formato inválido (MM/AA)'
+      if (!/^\d{3,4}$/.test(onboarding.cardCvv)) payErrors.cardCvv = 'CVV inválido'
+    } else if (onboarding.paymentMethod === 'QR') {
+      if (!onboarding.paymentFile) payErrors.paymentFile = 'Debes subir un comprobante'
+    } else if (onboarding.paymentMethod === 'MANUAL') {
+      if (!onboarding.paymentReference.trim()) payErrors.paymentReference = 'La referencia es obligatoria'
+    }
+
+    if (Object.keys(payErrors).length) {
+      setOnboardingErrors(payErrors)
+      return setError('Revisa los datos de pago para continuar.')
+    }
+    setOnboardingErrors({})
+
     setIsCompleting(true)
     try {
       await api.post('/auth/onboarding-complete/', {
@@ -253,6 +275,8 @@ function LoginPage() {
           direccion: onboarding.clubDireccion.trim(),
         },
         plan_id: onboarding.planId,
+        metodo_pago: onboarding.paymentMethod,
+        referencia: onboarding.paymentReference || 'N/A',
       })
       setViewMode('onboarding_success')
     } catch (requestError) {
@@ -417,7 +441,74 @@ function LoginPage() {
               <div className="card-header"><span className="saas-card-kicker">Activación</span><h2>Activa tu plan SaaS</h2><p>Revisa la configuración antes de completar el alta.</p></div>
               <div className="saas-activation-summary"><div><span>Club</span><strong>{onboarding.clubNombre}</strong><small>{onboarding.clubCiudad} · {onboarding.clubEmail}</small></div><div><span>Plan seleccionado</span><strong>{selectedPlan?.nombre || onboarding.plan}</strong><small>{selectedPlan ? formatPlanPrice(selectedPlan.precio_mensual) : ''}</small></div></div>
               <div className="saas-payment-tabs">{[['TARJETA', 'Tarjeta'], ['QR', 'Código QR'], ['MANUAL', 'Registro manual']].map(([value, label]) => <button key={value} type="button" className={onboarding.paymentMethod === value ? 'is-selected' : ''} onClick={() => setOnboarding((state) => ({ ...state, paymentMethod: value }))}>{label}</button>)}</div>
-              <div className="saas-payment-note">Opción seleccionada: <strong>{onboarding.paymentMethod === 'TARJETA' ? 'Tarjeta' : onboarding.paymentMethod === 'QR' ? 'Código QR' : 'Registro manual'}</strong>. Esta etapa es una simulación visual; no solicitamos ni almacenamos datos de pago.</div>
+              {onboarding.paymentMethod === 'TARJETA' && (
+                <div className="saas-payment-form" style={{ marginTop: '1rem' }}>
+                  <label className="saas-form-group">
+                    Número de tarjeta
+                    <input className="saas-login-input" value={onboarding.cardNumber} onChange={updateOnboarding('cardNumber')} placeholder="0000 0000 0000 0000" maxLength="19" />
+                    {onboardingErrors.cardNumber && <span className="saas-field-error">{onboardingErrors.cardNumber}</span>}
+                  </label>
+                  <label className="saas-form-group">
+                    Nombre del titular
+                    <input className="saas-login-input" value={onboarding.cardName} onChange={updateOnboarding('cardName')} placeholder="Nombre como aparece en la tarjeta" />
+                    {onboardingErrors.cardName && <span className="saas-field-error">{onboardingErrors.cardName}</span>}
+                  </label>
+                  <div className="saas-field-grid">
+                    <label className="saas-form-group">
+                      Expiración
+                      <input className="saas-login-input" value={onboarding.cardExpiry} onChange={updateOnboarding('cardExpiry')} placeholder="MM/AA" maxLength="5" />
+                      {onboardingErrors.cardExpiry && <span className="saas-field-error">{onboardingErrors.cardExpiry}</span>}
+                    </label>
+                    <label className="saas-form-group">
+                      CVV
+                      <input className="saas-login-input" value={onboarding.cardCvv} onChange={updateOnboarding('cardCvv')} placeholder="123" maxLength="4" type="password" />
+                      {onboardingErrors.cardCvv && <span className="saas-field-error">{onboardingErrors.cardCvv}</span>}
+                    </label>
+                  </div>
+                  {onboarding.cardNumber && !onboardingErrors.cardNumber && !onboardingErrors.cardName && !onboardingErrors.cardExpiry && !onboardingErrors.cardCvv && (
+                    <div className="saas-alert-success" style={{ color: '#10b981', marginTop: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Pago validado correctamente. Tu plan está listo para activarse.</div>
+                  )}
+                </div>
+              )}
+
+              {onboarding.paymentMethod === 'QR' && (
+                <div className="saas-payment-form" style={{ marginTop: '1rem', textAlign: 'center' }}>
+                  <div className="saas-qr-placeholder" style={{ marginBottom: '1.5rem' }}>
+                    <div style={{ width: '150px', height: '150px', background: '#f8fafc', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px dashed #cbd5e1', borderRadius: '8px' }}>
+                      <span style={{ color: '#64748b', fontSize: '0.9rem' }}>QR de pago generado</span>
+                    </div>
+                    <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#475569' }}>Escanea este código QR desde tu app bancaria para completar el pago.</p>
+                  </div>
+                  <label className="saas-form-group" style={{ textAlign: 'left' }}>
+                    Subir comprobante de pago
+                    <input type="file" className="saas-login-input" style={{ padding: '0.5rem' }} onChange={(e) => {
+                      setOnboarding(v => ({ ...v, paymentFile: e.target.files[0] }))
+                      setOnboardingErrors(v => ({ ...v, paymentFile: '' }))
+                    }} accept="image/*,.pdf" />
+                    {onboardingErrors.paymentFile && <span className="saas-field-error">{onboardingErrors.paymentFile}</span>}
+                  </label>
+                  {onboarding.paymentFile && !onboardingErrors.paymentFile && (
+                    <div className="saas-alert-success" style={{ color: '#10b981', marginTop: '0.5rem', fontWeight: 500, fontSize: '0.9rem', textAlign: 'left' }}>Comprobante recibido correctamente. Tu plan está listo para activarse.</div>
+                  )}
+                </div>
+              )}
+
+              {onboarding.paymentMethod === 'MANUAL' && (
+                <div className="saas-payment-form" style={{ marginTop: '1rem' }}>
+                  <label className="saas-form-group">
+                    Referencia de pago
+                    <input className="saas-login-input" value={onboarding.paymentReference} onChange={updateOnboarding('paymentReference')} placeholder="Nº de transacción o recibo" />
+                    {onboardingErrors.paymentReference && <span className="saas-field-error">{onboardingErrors.paymentReference}</span>}
+                  </label>
+                  <label className="saas-form-group">
+                    Observación
+                    <input className="saas-login-input" value={onboarding.paymentObservation} onChange={updateOnboarding('paymentObservation')} placeholder="Detalles adicionales (opcional)" />
+                  </label>
+                  {onboarding.paymentReference && !onboardingErrors.paymentReference && (
+                    <div className="saas-alert-success" style={{ color: '#10b981', marginTop: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Registro de pago guardado correctamente. Tu plan está listo para activarse.</div>
+                  )}
+                </div>
+              )}
               {error && <div className="saas-alert-error" role="alert">{error}</div>}<div className="saas-form-actions"><button type="button" className="saas-btn-secondary" onClick={() => goToOnboardingStep(4)} disabled={isCompleting}>Atrás</button><button className="saas-btn-submit" type="submit" disabled={isCompleting}>{isCompleting ? 'Completando...' : 'Completar configuración'}</button></div>
             </form>}
           </section>

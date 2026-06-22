@@ -32,6 +32,8 @@ class ClubPlanSerializer(serializers.ModelSerializer):
 
 class SeleccionarPlanSaaSSerializer(serializers.Serializer):
     plan_id = serializers.IntegerField(required=True, min_value=1)
+    metodo_pago = serializers.CharField(max_length=50, required=False, allow_blank=True, allow_null=True)
+    referencia = serializers.CharField(max_length=100, required=False, allow_blank=True, allow_null=True)
 
     def validate_plan_id(self, value):
         try:
@@ -45,6 +47,8 @@ class SeleccionarPlanSaaSSerializer(serializers.Serializer):
     def create(self, validated_data):
         club = validated_data['club']
         plan = validated_data['plan_id']
+        metodo_pago = validated_data.get('metodo_pago', '')
+        referencia = validated_data.get('referencia', '')
         now = timezone.now()
 
         with transaction.atomic():
@@ -59,6 +63,8 @@ class SeleccionarPlanSaaSSerializer(serializers.Serializer):
                 plan=plan,
                 activo=True,
                 estado=ClubPlan.Estado.ACTIVA,
+                metodo_pago=metodo_pago,
+                referencia=referencia,
                 fecha_inicio=now,
             )
             Club.objects.filter(pk=club.pk).update(
