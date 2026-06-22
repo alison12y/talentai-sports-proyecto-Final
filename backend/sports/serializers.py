@@ -22,6 +22,7 @@ from .models import (
     Partido,
     TutorJugador,
 )
+from notifications.utils import notificar_padre_convocatoria
 
 
 def generar_convocatorias_evento(evento, exigir_equipo=True):
@@ -63,6 +64,15 @@ def generar_convocatorias_evento(evento, exigir_equipo=True):
         for jugador_id in nuevos_ids
     ]
     Convocatoria.objects.bulk_create(convocatorias, ignore_conflicts=True)
+    
+    # Notificar a los padres de los jugadores convocados
+    nuevas_convocatorias = Convocatoria.objects.filter(
+        evento=evento,
+        jugador_id__in=nuevos_ids,
+    )
+    for conv in nuevas_convocatorias:
+        notificar_padre_convocatoria(conv)
+        
     return len(convocatorias)
 
 
@@ -835,12 +845,17 @@ class AsistenciaSerializer(serializers.ModelSerializer):
 
 
 class ConvocatoriaSerializer(serializers.ModelSerializer):
+    notificacion_estado = serializers.SerializerMethodField()
+    notificacion_leida = serializers.SerializerMethodField()
+    notificacion_fecha_lectura = serializers.SerializerMethodField()
+
     class Meta:
         model = Convocatoria
         fields = (
             'id', 'evento', 'jugador', 'estado', 'confirmado',
             'confirmado_en', 'respuesta', 'motivo_rechazo', 'respondido_en',
             'notas', 'fecha_notificacion', 'creado_en', 'actualizado_en',
+            'notificacion_estado', 'notificacion_leida', 'notificacion_fecha_lectura',
         )
         read_only_fields = (
             'id', 'confirmado', 'confirmado_en', 'fecha_notificacion',
@@ -850,6 +865,33 @@ class ConvocatoriaSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'estado': {'required': False},
         }
+        validators = []
+
+    def _get_notificacion(self, obj):
+        if not hasattr(self, '_notificaciones_cache'):
+            self._notificaciones_cache = {}
+            
+        convocatoria_id = str(obj.id)
+        if convocatoria_id not in self._notificaciones_cache:
+            from notifications.models import Notificacion
+            notif = Notificacion.objects.filter(data_extra__convocatoria_id=convocatoria_id).order_by('-creado_en').first()
+            self._notificaciones_cache[convocatoria_id] = notif
+            
+        return self._notificaciones_cache[convocatoria_id]
+
+    def get_notificacion_estado(self, obj):
+        notif = self._get_notificacion(obj)
+        if not notif:
+            return None
+        return "LEIDA" if notif.leida else "PENDIENTE"
+
+    def get_notificacion_leida(self, obj):
+        notif = self._get_notificacion(obj)
+        return notif.leida if notif else False
+
+    def get_notificacion_fecha_lectura(self, obj):
+        notif = self._get_notificacion(obj)
+        return notif.fecha_lectura if notif else None
 
     def validate(self, attrs):
         evento = attrs.get('evento', getattr(self.instance, 'evento', None))
@@ -891,7 +933,7 @@ class ConvocatoriaSerializer(serializers.ModelSerializer):
                 })
             if Convocatoria.objects.filter(evento=evento, jugador=jugador).exists():
                 raise serializers.ValidationError({
-                    'non_field_errors': 'El jugador ya tiene una convocatoria para este evento.',
+                    'non_field_errors': 'Este jugador ya fue convocado a este evento.',
                 })
 
         return attrs
@@ -905,10 +947,12 @@ class ConvocatoriaSerializer(serializers.ModelSerializer):
         validated_data.setdefault('creado_en', now)
         self._sincronizar_confirmacion(validated_data, estado, now)
         try:
-            return super().create(validated_data)
+            convocatoria = super().create(validated_data)
+            notificar_padre_convocatoria(convocatoria)
+            return convocatoria
         except IntegrityError as exc:
             raise serializers.ValidationError({
-                'non_field_errors': 'El jugador ya tiene una convocatoria para este evento.',
+                'non_field_errors': 'Este jugador ya fue convocado a este evento.',
             }) from exc
 
     def update(self, instance, validated_data):

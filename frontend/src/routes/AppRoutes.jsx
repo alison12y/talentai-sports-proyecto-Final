@@ -17,6 +17,7 @@ import PlayerStatsPage from '../pages/PlayerStatsPage'
 import PhysicalEvolutionPage from '../pages/PhysicalEvolutionPage'
 import TeamsPage from '../pages/TeamsPage'
 import UsersPage from '../pages/UsersPage'
+import NotificationsPage from '../pages/NotificationsPage'
 
 function AppRoutes() {
   return (
@@ -38,6 +39,7 @@ function AppRoutes() {
         <Route path="/roles-permisos" element={<MembershipsPage />} />
         <Route path="/cuotas" element={<CuotasPage />} />
         <Route path="/portal-padre" element={<ParentPortalPage />} />
+        <Route path="/notificaciones" element={<NotificationsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

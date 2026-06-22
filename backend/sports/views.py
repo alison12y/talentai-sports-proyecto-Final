@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from clubs.models import Club
+from notifications.models import Notificacion
 from payments.models import Cuota, Pago
 from users.models import EstadoUsuarioClub, RolUsuario, UsuarioClub
 
@@ -468,6 +469,15 @@ class PagoViewSet(
         pago.referencia = referencia
         pago.actualizado_en = timezone.now()
         pago.save()
+
+        if request.user and request.user.is_authenticated:
+            Notificacion.objects.create(
+                usuario=request.user,
+                club=pago.cuota.club,
+                tipo='PAGO_CONFIRMADO',
+                titulo='Pago confirmado',
+                cuerpo=f'Tu pago de la cuota "{pago.cuota.concepto}" por {pago.monto} {pago.moneda} ha sido confirmado.',
+            )
 
         return Response(PagoSerializer(pago).data, status=status.HTTP_200_OK)
 

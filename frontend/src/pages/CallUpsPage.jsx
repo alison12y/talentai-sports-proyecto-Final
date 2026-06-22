@@ -32,7 +32,13 @@ const requestErrorMessage = (error, fallback) => {
   for (const field of ['non_field_errors', 'evento', 'equipo', 'jugador', 'estado', 'detail']) {
     const candidate = data[field]
     const message = Array.isArray(candidate) ? candidate[0] : candidate
-    if (typeof message === 'string') return message
+    if (typeof message === 'string') {
+      const lowerMessage = message.toLowerCase()
+      if (lowerMessage.includes('unique set') || lowerMessage.includes('ya tiene una convocatoria') || lowerMessage.includes('ya fue convocado')) {
+        return 'Este jugador ya fue convocado a este evento.'
+      }
+      return message
+    }
   }
   return fallback
 }
@@ -339,7 +345,20 @@ function CallUpsPage() {
                 <article className="category-card callup-card" key={callUp.id}>
                   <div className="category-card-top"><div><span className="category-card-kicker">{event?.tipo || 'Evento'}</span><h3>{player ? `${player.nombre} ${player.apellido}` : 'Jugador no disponible'}</h3></div><span className={`callup-status callup-status-${callUp.estado.toLowerCase().replace('_', '-')}`}>{statusLabel(callUp.estado)}</span></div>
                   <p>{event?.titulo || 'Evento no disponible'}</p>
-                  <div className="category-card-meta callup-card-meta"><span>Equipo <strong>{teamName(event)}</strong></span><span>Notificación <strong>{formatDateTime(callUp.fecha_notificacion)}</strong></span></div>
+                  <div className="category-card-meta callup-card-meta" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                      <span>Equipo <strong>{teamName(event)}</strong></span>
+                      <span>Generada: <strong>{formatDateTime(callUp.fecha_notificacion)}</strong></span>
+                    </div>
+                    {callUp.notificacion_estado && (
+                      <div style={{ display: 'flex', gap: '1rem', color: callUp.notificacion_leida ? '#10b981' : '#f59e0b', fontSize: '0.85rem' }}>
+                        <span>Estado Notificación: <strong>{callUp.notificacion_leida ? 'Notificación leída' : 'Notificación pendiente'}</strong></span>
+                        {callUp.notificacion_leida && callUp.notificacion_fecha_lectura && (
+                          <span>Leída el: <strong>{formatDateTime(callUp.notificacion_fecha_lectura)}</strong></span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div className="category-actions callup-actions"><button type="button" className="is-danger" onClick={() => removeCallUp(callUp)} disabled={busy || callUp.estado === 'NO_CONVOCADO'}>{busy ? 'Procesando...' : callUp.estado === 'NO_CONVOCADO' ? 'No convocado' : 'Quitar'}</button></div>
                 </article>
               )

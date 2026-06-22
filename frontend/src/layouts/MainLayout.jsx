@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import api from '../api/axios'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -17,6 +18,7 @@ const navItems = [
   { to: '/roles-permisos', label: 'Roles y permisos' },
   { to: '/cuotas', label: 'Cuotas' },
   { to: '/portal-padre', label: 'Portal Padre' },
+  { to: '/notificaciones', label: 'Notificaciones' },
 ]
 
 const menuPathsByRole = {
@@ -26,9 +28,10 @@ const menuPathsByRole = {
   ENTRENADOR: [
     '/dashboard', '/equipos', '/jugadores', '/eventos', '/convocatorias',
     '/asistencias', '/partidos', '/estadisticas', '/evolucion-fisica',
+    '/notificaciones',
   ],
-  PADRE: ['/dashboard', '/portal-padre'],
-  JUGADOR: ['/dashboard'],
+  PADRE: ['/dashboard', '/portal-padre', '/notificaciones'],
+  JUGADOR: ['/dashboard', '/notificaciones'],
 }
 
 const readStoredJson = (key, fallback) => {
@@ -58,6 +61,7 @@ function MainLayout() {
     () => readStoredJson('activeMembership', null),
   )
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
+  const [unreadCount, setUnreadCount] = useState(0)
   const activeRole = normalizeRole(
     activeMembership?.rol
       || user?.rol
@@ -74,11 +78,28 @@ function MainLayout() {
     const handleOffline = () => setIsOnline(false)
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    
+    const updateUnread = () => {
+      if (!user) return
+      api.get(`/notificaciones/?usuario_id=${user.id}`)
+        .then(({ data }) => {
+          const list = Array.isArray(data) ? data : data.results || []
+          setUnreadCount(list.filter(n => !n.leida).length)
+        })
+        .catch(() => {})
+    }
+
+    if (user) {
+      updateUnread()
+      window.addEventListener('notificaciones_actualizadas', updateUnread)
+    }
+
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      window.removeEventListener('notificaciones_actualizadas', updateUnread)
     }
-  }, [])
+  }, [user])
 
   const handleMembershipChange = (event) => {
     const membership = memberships.find(
@@ -128,6 +149,19 @@ function MainLayout() {
           <div className="topbar-actions">
             {user ? (
               <>
+                <NavLink to="/notificaciones" className="topbar-bell" style={{ position: 'relative', marginRight: '1rem', textDecoration: 'none', color: 'var(--text)', display: 'flex', alignItems: 'center' }}>
+                  <span style={{ fontSize: '1.25rem' }}>🔔</span>
+                  {unreadCount > 0 && (
+                    <span style={{
+                      position: 'absolute', top: '-6px', right: '-8px',
+                      background: 'var(--danger)', color: '#ffffff', borderRadius: '999px',
+                      padding: '2px 6px', fontSize: '0.7rem', fontWeight: '900',
+                      boxShadow: '0 0 0 2px var(--panel)'
+                    }}>
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </NavLink>
                 <div className="topbar-account">
                   <span className="topbar-user">{user.nombre}</span>
                   {activeMembership && (
