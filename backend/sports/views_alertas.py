@@ -63,8 +63,10 @@ def calcular_riesgo_lesion_hu24(jugador_id):
         nivel = "INFO"
         recomendacion = "Carga dentro del límite superior. Continuar hidratación y recuperación activa."
     else:
-        # No alert needed if score is low and minutes are low
-        return None, minutos_semana, None, None, score
+        # LOW risk alert
+        nivel = "LOW"
+        recomendacion = "Carga de entrenamiento óptima. Mantener rutina regular."
+        return nivel, minutos_semana, "Parámetros dentro de lo normal.", recomendacion, score
         
     return nivel, minutos_semana, " ".join(motivos), recomendacion, score
 

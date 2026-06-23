@@ -28,7 +28,8 @@ function CoachDashboard({ data, user, handleLogout }) {
     }
     const altasRiesgo = data.alertasLesion?.filter(a => a.estado === 'ACTIVA' && a.nivel === 'CRITICAL') || []
     if (altasRiesgo.length > 0) {
-      list.push(`Hay ${altasRiesgo.length} jugador(es) con riesgo CRITICAL de lesión. Recomendamos revisar sus métricas y reducir carga física.`)
+      list.push(`Hay ${altasRiesgo.length} jugador(es) con riesgo CRITICAL de lesión. Recomendamos revisar sus métricas 
+        y reducir carga física.`)
     }
     const mediasRiesgo = data.alertasLesion?.filter(a => a.estado === 'ACTIVA' && a.nivel === 'WARNING') || []
     if (mediasRiesgo.length > 0) {

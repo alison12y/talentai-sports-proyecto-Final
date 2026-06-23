@@ -12,9 +12,7 @@ def enviar_notificacion_push(usuario, titulo, cuerpo, data_extra=None):
 
 @transaction.atomic
 def crear_notificacion(usuario, tipo, titulo, cuerpo, club=None, data_extra=None):
-    if not usuario:
-        return None
-        
+    # Permitimos usuario None para crear notificaciones generales o asociadas solo por ID/extra data
     notificacion = Notificacion.objects.create(
         usuario=usuario,
         tipo=tipo,
@@ -43,18 +41,17 @@ def notificar_padre_convocatoria(convocatoria):
             jugador=jugador
         ).select_related('usuario').first()
         
-    if not tutor_principal or not tutor_principal.usuario:
-        # No hay tutor, no creamos notificación pero no fallamos
-        return None
+    usuario_tutor = None
+    if tutor_principal and tutor_principal.usuario:
+        usuario_tutor = tutor_principal.usuario
         
-    usuario_tutor = tutor_principal.usuario
     titulo = "Nueva convocatoria"
     evento = convocatoria.evento
-    cuerpo = f"{jugador.nombre} {jugador.apellido} fue convocado para {evento.titulo}."
+    cuerpo = f"Has sido convocado a un evento: {evento.titulo}"
     data_extra = {
-        "convocatoria_id": str(convocatoria.id),
-        "evento_id": str(evento.id),
-        "jugador_id": str(jugador.id),
+        "id_convocatoria": str(convocatoria.id),
+        "id_evento": str(evento.id),
+        "id_jugador": str(jugador.id),
     }
     
     return crear_notificacion(

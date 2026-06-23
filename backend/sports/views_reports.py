@@ -20,6 +20,17 @@ def build_report_data(request):
     fecha_inicio = request.query_params.get('fecha_inicio')
     fecha_fin = request.query_params.get('fecha_fin')
 
+    if not tipo:
+        return {
+            "resumen": {},
+            "partidos": [],
+            "asistencias": [],
+            "estadisticas": [],
+            "evolucion_fisica": [],
+            "alertas": [],
+            "mensaje": "Reporte generado correctamente"
+        }, None
+
     if tipo == 'jugador' and not jugador_id:
         return None, "Debes seleccionar un jugador."
     if tipo == 'equipo' and not equipo_id:
