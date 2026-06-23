@@ -17,6 +17,8 @@ Including another URLconf
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
+from django.conf import settings
+from django.conf.urls.static import static
 
 
 def health_check(request):
@@ -35,3 +37,6 @@ urlpatterns = [
     path('api/', include('sports.urls')),
     path('api/', include('notifications.urls')),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -18,6 +18,19 @@ from .views import (
     PagoViewSet,
 )
 
+from .views_reports import ReporteRendimientoView, ReporteRendimientoExcelView, JugadoresPorEquipoView
+from .views_video import SubirVideoPartidoView, EstadoAnalisisVideoView, InformeScoutingVideoView, CompartirInformePadresView
+from .views_alertas import (
+    AlertasRiesgoLesionView,
+    GenerarAlertasRiesgoLesionView,
+    MarcarAlertaAtendidaView,
+)
+from .views_recomendaciones import (
+    RecomendacionesAscensoView,
+    GenerarRecomendacionesAscensoView,
+    MarcarRecomendacionRevisadaView,
+    CrearSeguimientoRecomendacionView,
+)
 
 router = DefaultRouter()
 router.register('equipos', EquipoViewSet, basename='equipo')
@@ -52,4 +65,18 @@ urlpatterns = [
         name='categoria-predefinidas',
     ),
     path('categorias/', CategoriaListView.as_view(), name='categoria-list'),
+    path('reportes/rendimiento/', ReporteRendimientoView.as_view(), name='reporte-rendimiento'),
+    path('reportes/rendimiento/exportar-excel/', ReporteRendimientoExcelView.as_view(), name='reporte-rendimiento-excel'),
+    path('reportes/jugadores-por-equipo/', JugadoresPorEquipoView.as_view(), name='reporte-jugadores-por-equipo'),
+    path('partidos/<uuid:id>/subir-video/', SubirVideoPartidoView.as_view(), name='subir-video-partido'),
+    path('partidos/<uuid:id>/estado-analisis/', EstadoAnalisisVideoView.as_view(), name='estado-analisis-video'),
+    path('partidos/<uuid:id>/informe-scouting/', InformeScoutingVideoView.as_view(), name='informe-scouting-video'),
+    path('partidos/<uuid:id>/compartir-informe-padres/', CompartirInformePadresView.as_view(), name='compartir-informe-padres'),
+    path('alertas-riesgo-lesion/', AlertasRiesgoLesionView.as_view(), name='alertas-riesgo-lesion'),
+    path('alertas-riesgo-lesion/generar/', GenerarAlertasRiesgoLesionView.as_view(), name='generar-alertas-riesgo'),
+    path('alertas-riesgo-lesion/<uuid:id>/marcar-vista/', MarcarAlertaAtendidaView.as_view(), name='marcar-alerta-vista'),
+    path('recomendaciones-ascenso/', RecomendacionesAscensoView.as_view(), name='recomendaciones-ascenso'),
+    path('recomendaciones-ascenso/generar/', GenerarRecomendacionesAscensoView.as_view(), name='generar-recomendaciones'),
+    path('recomendaciones-ascenso/<uuid:id>/marcar-revisada/', MarcarRecomendacionRevisadaView.as_view(), name='marcar-revisada'),
+    path('recomendaciones-ascenso/<uuid:id>/crear-seguimiento/', CrearSeguimientoRecomendacionView.as_view(), name='crear-seguimiento'),
 ] + router.urls

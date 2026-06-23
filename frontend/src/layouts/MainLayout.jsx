@@ -14,11 +14,14 @@ const navItems = [
   { to: '/partidos', label: 'Partidos' },
   { to: '/estadisticas', label: 'Estadísticas' },
   { to: '/evolucion-fisica', label: 'Evolución física' },
+  { to: '/alertas-lesion', label: 'Riesgo de lesión' },
+  { to: '/recomendaciones-ascenso', label: 'Ascenso de categoría' },
   { to: '/usuarios', label: 'Usuarios' },
   { to: '/roles-permisos', label: 'Roles y permisos' },
   { to: '/cuotas', label: 'Cuotas' },
   { to: '/portal-padre', label: 'Portal Padre' },
   { to: '/notificaciones', label: 'Notificaciones' },
+  { to: '/reportes', label: 'Reportes' },
 ]
 
 const menuPathsByRole = {
@@ -27,8 +30,8 @@ const menuPathsByRole = {
     .map((item) => item.to),
   ENTRENADOR: [
     '/dashboard', '/equipos', '/jugadores', '/eventos', '/convocatorias',
-    '/asistencias', '/partidos', '/estadisticas', '/evolucion-fisica',
-    '/notificaciones',
+    '/asistencias', '/partidos', '/estadisticas', '/evolucion-fisica', '/alertas-lesion',
+    '/recomendaciones-ascenso', '/notificaciones', '/reportes'
   ],
   PADRE: ['/dashboard', '/portal-padre', '/notificaciones'],
   JUGADOR: ['/dashboard', '/notificaciones'],

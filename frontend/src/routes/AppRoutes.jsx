@@ -18,6 +18,9 @@ import PhysicalEvolutionPage from '../pages/PhysicalEvolutionPage'
 import TeamsPage from '../pages/TeamsPage'
 import UsersPage from '../pages/UsersPage'
 import NotificationsPage from '../pages/NotificationsPage'
+import ReportsPage from '../pages/ReportsPage'
+import InjuryRiskPage from '../pages/InjuryRiskPage'
+import PromotionRecommendationsPage from '../pages/PromotionRecommendationsPage'
 
 function AppRoutes() {
   return (
@@ -40,6 +43,9 @@ function AppRoutes() {
         <Route path="/cuotas" element={<CuotasPage />} />
         <Route path="/portal-padre" element={<ParentPortalPage />} />
         <Route path="/notificaciones" element={<NotificationsPage />} />
+        <Route path="/reportes" element={<ReportsPage />} />
+        <Route path="/alertas-lesion" element={<InjuryRiskPage />} />
+        <Route path="/recomendaciones-ascenso" element={<PromotionRecommendationsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

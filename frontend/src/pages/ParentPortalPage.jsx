@@ -121,7 +121,7 @@ const requestErrorMessage = (error, fallback) => (
   firstMessage(error.response?.data) || fallback
 )
 
-function ParentPortalPage() {
+function ParentPortalPage({ isDashboard = false }) {
   const [initialCache] = useState(() => readCache())
   const initialPlayerId = initialCache.selectedPlayerId
     || String(initialCache.players[0]?.id || '')
@@ -133,7 +133,10 @@ function ParentPortalPage() {
     initialCache.callUpsByPlayer[initialPlayerId] || [],
   )
   const [payments, setPayments] = useState([])
+  const [evolucion, setEvolucion] = useState([])
+  const [estadisticas, setEstadisticas] = useState([])
   const [isLoadingPayments, setIsLoadingPayments] = useState(false)
+  const [isLoadingExtra, setIsLoadingExtra] = useState(false)
   const [processingPayment, setProcessingPayment] = useState(null)
   const [confirmingPayment, setConfirmingPayment] = useState(null)
   const [paymentError, setPaymentError] = useState('')
@@ -161,7 +164,7 @@ function ParentPortalPage() {
   }, [])
 
   const loadPayments = useCallback(async (selectedPlayerId) => {
-    // Use the global pagos endpoint filtered by jugador to retrieve all states
+    
     const { data } = await api.get(`/pagos/?jugador=${selectedPlayerId}`)
     const loadedPayments = asList(data)
     setPayments(loadedPayments)
@@ -402,6 +405,31 @@ function ParentPortalPage() {
     }
   }, [isOnline, loadPayments, playerId])
 
+  useEffect(() => {
+    if (!playerId || !isOnline) {
+      setEvolucion([])
+      setEstadisticas([])
+      return undefined
+    }
+
+    let isActive = true
+    setIsLoadingExtra(true)
+
+    Promise.allSettled([
+      api.get(`/jugadores/${playerId}/evolucion-fisica/ultimos-12/`),
+      api.get(`/jugadores/${playerId}/estadisticas/`)
+    ]).then(results => {
+      if (!isActive) return
+      
+      const extractData = (r) => r.status === 'fulfilled' ? (Array.isArray(r.value.data) ? r.value.data : r.value.data.results || []) : []
+      setEvolucion(extractData(results[0]))
+      setEstadisticas(extractData(results[1]))
+      setIsLoadingExtra(false)
+    })
+
+    return () => { isActive = false }
+  }, [playerId, isOnline])
+
   const eventById = useMemo(() => new Map(
     events.map((event) => [String(event.id), event]),
   ), [events])
@@ -568,10 +596,27 @@ function ParentPortalPage() {
     }
   }
 
+  const seasonStats = useMemo(() => {
+    let goles = 0; let asistencias = 0; let amarillas = 0; let rojas = 0;
+    estadisticas.forEach(e => {
+      goles += (e.goles || 0);
+      asistencias += (e.asistencias || 0);
+      amarillas += (e.tarjetas_amarillas || 0);
+      rojas += (e.tarjetas_rojas || 0);
+    });
+    return { partidos: estadisticas.length, goles, asistencias, tarjetas: amarillas + rojas };
+  }, [estadisticas]);
+
+  const latestPhysical = evolucion.length > 0 ? evolucion[0] : null;
+
   return (
     <section className="page page-fluid parent-portal-page">
       <div className="page-header parent-portal-header">
-        <div><p className="eyebrow">Familias</p><h1>Portal Padre</h1><p>Consulta y responde las convocatorias deportivas de tus hijos.</p></div>
+        {isDashboard ? (
+          <div><p className="eyebrow">Dashboard del Padre</p><h1>Seguimiento deportivo de tu hijo</h1><p>Revisa el rendimiento, convocatorias y pagos en tiempo real.</p></div>
+        ) : (
+          <div><p className="eyebrow">Familias</p><h1>Portal Padre</h1><p>Consulta y responde las convocatorias deportivas de tus hijos.</p></div>
+        )}
       </div>
 
       {!isOnline && <div className="clubs-alert parent-offline-alert" role="status">Modo offline: tus cambios se sincronizarán cuando vuelva internet.</div>}
@@ -580,12 +625,75 @@ function ParentPortalPage() {
       {pageError && <div className="clubs-alert clubs-alert-error" role="alert">{pageError}</div>}
 
       <section className="parent-player-card" aria-label="Seleccionar jugador">
-        <div><span className="eyebrow">Jugador</span><strong>{selectedPlayer ? `${selectedPlayer.nombre} ${selectedPlayer.apellido}` : 'Sin jugador seleccionado'}</strong><small>{selectedPlayer?.categoria || 'Selecciona un hijo para ver sus convocatorias'}</small></div>
-        <label>Seleccionar hijo<select value={playerId} onChange={(event) => { const nextPlayerId = event.target.value; setIsLoadingCallUps(isOnline); setIsLoadingPayments(isOnline); setPageError(''); setPaymentError(''); setPlayerId(nextPlayerId); setSuccess(''); setConfirmingPayment(null); updateCache({ selectedPlayerId: nextPlayerId }); if (!isOnline) { setCallUps(readCache().callUpsByPlayer[nextPlayerId] || []); setPayments([]) } }} disabled={isLoading || !players.length}>{!players.length && <option value="">No hay jugadores disponibles</option>}{players.map((player) => <option key={player.id} value={player.id}>{player.nombre} {player.apellido}</option>)}</select></label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-between', width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 'bold' }}>
+              {selectedPlayer ? selectedPlayer.nombre.charAt(0) + selectedPlayer.apellido.charAt(0) : '👤'}
+            </div>
+            <div>
+              <span className="eyebrow" style={{ display: 'block' }}>Perfil del Jugador</span>
+              <strong style={{ fontSize: '1.25rem' }}>{selectedPlayer ? `${selectedPlayer.nombre} ${selectedPlayer.apellido}` : 'Sin jugador seleccionado'}</strong>
+              <small style={{ display: 'block', color: 'var(--muted)' }}>
+                {selectedPlayer?.equipo || selectedPlayer?.categoria || 'Selecciona un hijo'}
+                {selectedPlayer?.fecha_nacimiento && ` • Edad: ${new Date().getFullYear() - new Date(selectedPlayer.fecha_nacimiento).getFullYear()} años`}
+              </small>
+            </div>
+          </div>
+          <div>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
+              Seleccionar hijo
+              <select style={{ padding: '0.5rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} value={playerId} onChange={(event) => { const nextPlayerId = event.target.value; setIsLoadingCallUps(isOnline); setIsLoadingPayments(isOnline); setPageError(''); setPaymentError(''); setPlayerId(nextPlayerId); setSuccess(''); setConfirmingPayment(null); updateCache({ selectedPlayerId: nextPlayerId }); if (!isOnline) { setCallUps(readCache().callUpsByPlayer[nextPlayerId] || []); setPayments([]) } }} disabled={isLoading || !players.length}>{!players.length && <option value="">No hay jugadores disponibles</option>}{players.map((player) => <option key={player.id} value={player.id}>{player.nombre} {player.apellido}</option>)}</select>
+            </label>
+          </div>
+        </div>
       </section>
 
-      <section className="parent-callups-section">
-        <div className="categories-list-heading"><div><h2>Convocatorias</h2><p>{callUps.length} {callUps.length === 1 ? 'convocatoria encontrada' : 'convocatorias encontradas'}</p></div></div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginTop: '2rem' }}>
+        <section className="card" style={{ background: 'var(--panel)', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h3 style={{ fontSize: '1.1rem' }}>Estadísticas de Temporada</h3>
+            <span style={{ fontSize: '1.5rem' }}>📊</span>
+          </div>
+          {isLoadingExtra ? <p>Cargando...</p> : estadisticas.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Aún no hay estadísticas registradas para este jugador.</p> : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div><strong style={{ fontSize: '1.5rem', display: 'block', color: 'var(--primary)' }}>{seasonStats.partidos}</strong><span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Partidos</span></div>
+              <div><strong style={{ fontSize: '1.5rem', display: 'block', color: 'var(--primary)' }}>{seasonStats.goles}</strong><span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Goles</span></div>
+              <div><strong style={{ fontSize: '1.5rem', display: 'block', color: 'var(--primary)' }}>{seasonStats.asistencias}</strong><span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Asistencias</span></div>
+              <div><strong style={{ fontSize: '1.5rem', display: 'block', color: 'var(--danger)' }}>{seasonStats.tarjetas}</strong><span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Tarjetas</span></div>
+            </div>
+          )}
+        </section>
+
+        <section className="card" style={{ background: 'var(--panel)', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h3 style={{ fontSize: '1.1rem' }}>Última Evolución Física</h3>
+            <span style={{ fontSize: '1.5rem' }}>💪</span>
+          </div>
+          {isLoadingExtra ? <p>Cargando...</p> : !latestPhysical ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Aún no hay datos físicos de este jugador.</p> : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div style={{ gridColumn: '1 / -1', fontSize: '0.85rem', color: 'var(--muted)' }}>Fecha: {formatDateOnly(latestPhysical.fecha)}</div>
+              <div><strong style={{ fontSize: '1.25rem', display: 'block', color: 'var(--text)' }}>{latestPhysical.peso} kg</strong><span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Peso</span></div>
+              <div><strong style={{ fontSize: '1.25rem', display: 'block', color: 'var(--text)' }}>{latestPhysical.altura} cm</strong><span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Altura</span></div>
+              <div><strong style={{ fontSize: '1.25rem', display: 'block', color: 'var(--sport)' }}>{latestPhysical.imc || '-'}</strong><span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>IMC</span></div>
+            </div>
+          )}
+        </section>
+
+        <section className="card" style={{ background: 'var(--panel)', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h3 style={{ fontSize: '1.1rem' }}>Informes IA</h3>
+            <span style={{ fontSize: '1.5rem' }}>🤖</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', justifyContent: 'center', height: 'calc(100% - 2.5rem)' }}>
+            <div style={{ padding: '1rem', background: 'var(--panel-soft)', borderRadius: 'var(--radius)', textAlign: 'center', color: 'var(--muted)', fontSize: '0.9rem' }}>
+              Aún no hay informes de análisis disponibles.
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section className="parent-callups-section" style={{ marginTop: '2rem' }}>
+        <div className="categories-list-heading"><div><h2>Próximos eventos y convocatorias</h2><p>{callUps.length} {callUps.length === 1 ? 'evento encontrado' : 'eventos encontrados'}</p></div></div>
         {isLoading || isLoadingCallUps ? <div className="categories-empty"><span className="clubs-loader" /><strong>Cargando convocatorias...</strong></div> : !players.length ? <div className="categories-empty"><span className="categories-empty-icon">TS</span><strong>No hay jugadores vinculados</strong><p>Cuando exista un jugador asociado podrás consultar aquí sus convocatorias.</p></div> : !callUps.length ? <div className="categories-empty"><span className="categories-empty-icon">0</span><strong>No hay convocatorias guardadas</strong><p>Conéctate a internet una vez para guardar las convocatorias de este jugador.</p></div> : (
           <div className="parent-callups-grid">
             {callUps.map((callUp) => {

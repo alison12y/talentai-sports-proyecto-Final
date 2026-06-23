@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models.functions import Lower
 from django.utils import timezone
+import uuid
 
 
 class CategoriaDeportiva(models.Model):
@@ -350,3 +351,99 @@ class EstadisticaPartido(models.Model):
     class Meta:
         managed = False
         db_table = 'estadistica_partido'
+
+class VideoPartido(models.Model):
+    class EstadoAnalisis(models.TextChoices):
+        SIN_VIDEO = 'SIN_VIDEO', 'Sin Video'
+        PENDIENTE = 'PENDIENTE', 'Pendiente'
+        PROCESANDO = 'PROCESANDO', 'Procesando'
+        COMPLETADO = 'COMPLETADO', 'Completado'
+        ERROR = 'ERROR', 'Error'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    partido = models.OneToOneField(
+        Partido,
+        on_delete=models.CASCADE,
+        related_name='video_analisis'
+    )
+    video_url = models.URLField(max_length=500, null=True, blank=True)
+    video_key = models.CharField(max_length=255, null=True, blank=True)
+    video_nombre_original = models.CharField(max_length=255, null=True, blank=True)
+    video_tamano = models.BigIntegerField(null=True, blank=True)
+    video_content_type = models.CharField(max_length=100, null=True, blank=True)
+    analisis_estado = models.CharField(
+        max_length=50,
+        choices=EstadoAnalisis.choices,
+        default=EstadoAnalisis.SIN_VIDEO
+    )
+    analisis_progreso = models.IntegerField(default=0)
+    analisis_error = models.TextField(null=True, blank=True)
+    analisis_iniciado_en = models.DateTimeField(null=True, blank=True)
+    analisis_finalizado_en = models.DateTimeField(null=True, blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'video_partido'
+
+class InformeScouting(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    partido = models.OneToOneField(
+        Partido,
+        on_delete=models.CASCADE,
+        related_name='informe_scouting'
+    )
+    video = models.ForeignKey(
+        VideoPartido,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    resumen = models.TextField(null=True, blank=True)
+    metricas_json = models.JSONField(null=True, blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'informe_scouting'
+
+
+class AlertaRiesgoLesion(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    jugador = models.ForeignKey(Jugador, on_delete=models.CASCADE, related_name='alertas_lesion')
+    equipo = models.ForeignKey(Equipo, on_delete=models.CASCADE, related_name='alertas_lesion')
+    nivel = models.CharField(max_length=20, choices=[('INFO', 'Info'), ('WARNING', 'Warning'), ('CRITICAL', 'Critical')], default='INFO')
+    minutos_semana = models.IntegerField(default=0)
+    score_riesgo = models.IntegerField(default=0)
+    motivo = models.TextField()
+    recomendacion = models.TextField()
+    estado = models.CharField(max_length=20, choices=[('ACTIVA', 'Activa'), ('VISTA', 'Vista')], default='ACTIVA')
+    fecha_generacion = models.DateTimeField(auto_now_add=True)
+    vista_en = models.DateTimeField(null=True, blank=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'alerta_riesgo_lesion'
+        ordering = ['-fecha_generacion']
+
+class RecomendacionAscenso(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    jugador = models.ForeignKey(Jugador, on_delete=models.CASCADE, related_name='recomendaciones_ascenso')
+    equipo_actual = models.ForeignKey(Equipo, on_delete=models.CASCADE, related_name='recomendaciones_ascenso')
+    categoria_actual = models.CharField(max_length=100)
+    categoria_recomendada = models.CharField(max_length=100)
+    score_promedio = models.DecimalField(max_digits=5, decimal_places=2)
+    analisis_considerados = models.IntegerField(default=0)
+    nivel = models.CharField(max_length=50, choices=[('TALENTO_DESTACADO', 'Talento Destacado'), ('LISTO_PARA_ASCENSO', 'Listo para Ascenso')])
+    motivo = models.TextField()
+    recomendacion = models.TextField()
+    estado = models.CharField(max_length=20, choices=[('ACTIVA', 'Activa'), ('REVISADA', 'Revisada'), ('SEGUIMIENTO', 'Seguimiento')], default='ACTIVA')
+    accion_seguimiento = models.TextField(null=True, blank=True)
+    fecha_generacion = models.DateTimeField(auto_now_add=True)
+    revisada_en = models.DateTimeField(null=True, blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'recomendacion_ascenso'
+        ordering = ['-fecha_generacion']

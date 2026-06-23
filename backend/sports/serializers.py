@@ -21,6 +21,8 @@ from .models import (
     JugadorEquipo,
     Partido,
     TutorJugador,
+    AlertaRiesgoLesion,
+    RecomendacionAscenso,
 )
 from notifications.utils import notificar_padre_convocatoria
 
@@ -1503,3 +1505,30 @@ class JugadorSerializer(serializers.ModelSerializer):
                 tutor_jugador.parentesco = parentesco
                 tutor_jugador.es_contacto_principal = True
                 tutor_jugador.save(update_fields=['parentesco', 'es_contacto_principal'])
+
+class AlertaRiesgoLesionSerializer(serializers.ModelSerializer):
+    jugador_nombre = serializers.CharField(source='jugador.nombre', read_only=True)
+    jugador_apellido = serializers.CharField(source='jugador.apellido', read_only=True)
+    equipo_nombre = serializers.CharField(source='equipo.nombre', read_only=True)
+
+    class Meta:
+        model = AlertaRiesgoLesion
+        fields = [
+            'id', 'jugador', 'equipo', 'jugador_nombre', 'jugador_apellido', 'equipo_nombre',
+            'nivel', 'minutos_semana', 'score_riesgo', 'motivo', 'recomendacion', 'estado',
+            'fecha_generacion', 'vista_en', 'actualizado_en'
+        ]
+
+class RecomendacionAscensoSerializer(serializers.ModelSerializer):
+    jugador_nombre = serializers.CharField(source='jugador.nombre', read_only=True)
+    jugador_apellido = serializers.CharField(source='jugador.apellido', read_only=True)
+    equipo_actual_nombre = serializers.CharField(source='equipo_actual.nombre', read_only=True)
+
+    class Meta:
+        model = RecomendacionAscenso
+        fields = [
+            'id', 'jugador', 'equipo_actual', 'jugador_nombre', 'jugador_apellido', 'equipo_actual_nombre',
+            'categoria_actual', 'categoria_recomendada', 'score_promedio', 'analisis_considerados',
+            'nivel', 'motivo', 'recomendacion', 'estado', 'accion_seguimiento',
+            'fecha_generacion', 'revisada_en', 'actualizado_en'
+        ]
