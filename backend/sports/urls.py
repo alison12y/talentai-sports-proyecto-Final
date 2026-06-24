@@ -31,6 +31,11 @@ from .views_recomendaciones import (
     MarcarRecomendacionRevisadaView,
     CrearSeguimientoRecomendacionView,
 )
+from .views_video_scout import (
+    VideoScoutClipsView,
+    CompartirVideoScoutClipsPadresView,
+    JugadorVideoScoutClipsView,
+)
 
 router = DefaultRouter()
 router.register('equipos', EquipoViewSet, basename='equipo')
@@ -72,6 +77,9 @@ urlpatterns = [
     path('partidos/<uuid:id>/estado-analisis/', EstadoAnalisisVideoView.as_view(), name='estado-analisis-video'),
     path('partidos/<uuid:id>/informe-scouting/', InformeScoutingVideoView.as_view(), name='informe-scouting-video'),
     path('partidos/<uuid:id>/compartir-informe-padres/', CompartirInformePadresView.as_view(), name='compartir-informe-padres'),
+    path('partidos/<uuid:id>/video-scout-clips/', VideoScoutClipsView.as_view(), name='video-scout-clips'),
+    path('partidos/<uuid:id>/video-scout-clips/compartir-padres/', CompartirVideoScoutClipsPadresView.as_view(), name='video-scout-clips-compartir-padres'),
+    path('jugadores/<uuid:jugador_id>/video-scout-clips/', JugadorVideoScoutClipsView.as_view(), name='jugador-video-scout-clips'),
     path('alertas-riesgo-lesion/', AlertasRiesgoLesionView.as_view(), name='alertas-riesgo-lesion'),
     path('alertas-riesgo-lesion/generar/', GenerarAlertasRiesgoLesionView.as_view(), name='generar-alertas-riesgo'),
     path('alertas-riesgo-lesion/<uuid:id>/marcar-vista/', MarcarAlertaAtendidaView.as_view(), name='marcar-alerta-vista'),

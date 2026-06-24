@@ -33,6 +33,25 @@ const firstError = (value) => {
 
 const requestError = (error, fallback) => firstError(error.response?.data) || fallback
 
+const clipTypeOptions = [
+  { value: 'GOL', label: 'Gol' },
+  { value: 'ASISTENCIA', label: 'Asistencia' },
+  { value: 'PASE_CLAVE', label: 'Pase clave' },
+  { value: 'SPRINT', label: 'Sprint ofensivo' },
+  { value: 'RECUPERACION', label: 'Recuperación' },
+  { value: 'RIESGO_LESION', label: 'Alerta preventiva' },
+  { value: 'CAMBIO_POSICION', label: 'Cambio de posición' },
+  { value: 'ACCION_DESTACADA', label: 'Acción destacada' },
+]
+
+const emptyClipEvent = {
+  jugador_id: '',
+  tipo: 'GOL',
+  minuto: '',
+  descripcion: '',
+  enviar_padres: true,
+}
+
 const resultLabel = (result) => ({
   VICTORIA: 'Victoria',
   DERROTA: 'Derrota',
@@ -79,6 +98,12 @@ function MatchesPage() {
   const [isReportLoading, setIsReportLoading] = useState(false)
   const [isSharing, setIsSharing] = useState(false)
   const [isHeatmapLoaded, setIsHeatmapLoaded] = useState(false)
+
+  const [clipEvents, setClipEvents] = useState([{ ...emptyClipEvent }])
+  const [clipsData, setClipsData] = useState([])
+  const [isGeneratingClips, setIsGeneratingClips] = useState(false)
+  const [isSharingClips, setIsSharingClips] = useState(false)
+  const [clipsError, setClipsError] = useState('')
 
   useEffect(() => {
     let active = true
@@ -336,19 +361,34 @@ function MatchesPage() {
     }
   }
 
-  const openReportModal = async (match) => {
-    setIsVideoModalOpen(false) // Cerrar si viene del modal de video
+    const openReportModal = async (match) => {
+    setIsVideoModalOpen(false)
     setReportData(null)
     setPageError('')
+    setClipsError('')
+    setClipsData([])
+    setClipEvents([{ ...emptyClipEvent }])
     setIsReportModalOpen(true)
     setIsReportLoading(true)
     setIsHeatmapLoaded(false)
+
     try {
       const { data } = await api.get(`/partidos/${match.id}/informe-scouting/`)
       setReportData(data)
+      setClipsData(data.metricas_json?.video_scout_clips || [])
     } catch (error) {
       setIsReportModalOpen(false)
       setPageError(requestError(error, 'No se pudo cargar el informe de scouting.'))
+      setIsReportLoading(false)
+      return
+    }
+
+    try {
+      const { data } = await api.get(`/partidos/${match.id}/video-scout-clips/`)
+      setClipsData(data.clips || [])
+    } catch {
+      // No bloqueamos el informe si todavía no existen clips.
+      setClipsData([])
     } finally {
       setIsReportLoading(false)
     }
@@ -408,6 +448,88 @@ function MatchesPage() {
   const teamName = (match) => teamById.get(relationId(match?.equipo))?.nombre || 'Equipo no disponible'
   const matchEvent = (match) => eventById.get(relationId(match?.evento))
 
+  const reportPlayers = reportData?.metricas_json?.metricas_jugadores || []
+
+  const addClipEvent = () => {
+    setClipEvents((current) => [...current, { ...emptyClipEvent }])
+  }
+
+  const removeClipEvent = (index) => {
+    setClipEvents((current) => (
+      current.length === 1 ? current : current.filter((_, i) => i !== index)
+    ))
+  }
+
+  const updateClipEvent = (index, field, value) => {
+    setClipEvents((current) => current.map((item, i) => (
+      i === index ? { ...item, [field]: value } : item
+    )))
+    setClipsError('')
+  }
+
+  const generateVideoScoutClips = async () => {
+    if (!reportData) return
+
+    const invalid = clipEvents.find((item) => !item.jugador_id || item.minuto === '')
+    if (invalid) {
+      setClipsError('Completa jugador y minuto en todos los eventos.')
+      return
+    }
+
+    setIsGeneratingClips(true)
+    setClipsError('')
+    setPageError('')
+    setSuccess('')
+
+    try {
+      const payload = {
+        eventos: clipEvents.map((item) => {
+          const player = reportPlayers.find(
+            (p) => String(p.jugador_id) === String(item.jugador_id),
+          )
+
+          return {
+            ...item,
+            jugador_nombre: player?.nombre_completo || 'Jugador',
+            minuto: Number(item.minuto),
+          }
+        }),
+      }
+
+      const { data } = await api.post(
+        `/partidos/${reportData.partido_id}/video-scout-clips/`,
+        payload,
+      )
+
+      setClipsData(data.clips || [])
+      setSuccess(data.mensaje || 'Clips generados correctamente desde el video del partido.')
+    } catch (error) {
+      setClipsError(requestError(error, 'No se pudieron generar los clips.'))
+    } finally {
+      setIsGeneratingClips(false)
+    }
+  }
+
+  const shareVideoScoutClipsWithParents = async () => {
+    if (!reportData) return
+
+    setIsSharingClips(true)
+    setPageError('')
+    setSuccess('')
+
+    try {
+      const { data } = await api.post(
+        `/partidos/${reportData.partido_id}/video-scout-clips/compartir-padres/`,
+      )
+
+      setSuccess(data.mensaje || 'Clips compartidos con los padres.')
+    } catch (error) {
+      setPageError(requestError(error, 'No se pudieron compartir los clips con los padres.'))
+    } finally {
+      setIsSharingClips(false)
+    }
+  }
+
   return (
     <section className="page page-fluid categories-page matches-page">
       <div className="page-header categories-header">
@@ -438,7 +560,7 @@ function MatchesPage() {
 
       {isDetailOpen && detailMatch && <div className="clubs-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsDetailOpen(false) }}><section className="clubs-modal match-detail-modal" role="dialog" aria-modal="true" aria-labelledby="match-detail-title"><div className="clubs-modal-header"><div><span className="eyebrow">Resultado registrado</span><h2 id="match-detail-title">Detalle del partido</h2></div><button type="button" className="clubs-modal-close" onClick={() => setIsDetailOpen(false)} aria-label="Cerrar detalle">×</button></div>{isDetailLoading ? <div className="categories-empty"><span className="clubs-loader" /></div> : <><div className="match-detail-hero"><div><span>{teamName(detailMatch)}</span><h3>vs. {detailMatch.rival}</h3><p>{formatDateTime(matchEvent(detailMatch)?.fecha_inicio)}</p></div><div className="match-detail-score"><strong>{detailMatch.goles_equipo}</strong><span>—</span><strong>{detailMatch.goles_rival}</strong></div></div><dl className="category-detail-grid match-detail-grid"><div><dt>Resultado</dt><dd>{resultLabel(detailMatch.resultado)}</dd></div><div><dt>Equipo</dt><dd>{teamName(detailMatch)}</dd></div><div><dt>Evento</dt><dd>{matchEvent(detailMatch)?.titulo || 'No disponible'}</dd></div><div><dt>Rival</dt><dd>{detailMatch.rival}</dd></div></dl><div className="match-detail-notes"><span>Notas técnicas</span><p>{detailMatch.notas_tecnicas || 'Sin notas técnicas registradas.'}</p></div><div className="clubs-form-actions category-detail-actions"><button type="button" className="button-ghost" onClick={() => setIsDetailOpen(false)}>Cerrar</button><button type="button" className="button-primary" onClick={() => openEditForm(detailMatch)}>Editar partido</button></div></>}</section></div>}
 
-      {isVideoModalOpen && videoMatch && <div className="clubs-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeVideoModal() }}><section className="clubs-modal match-modal" role="dialog" aria-modal="true" aria-labelledby="video-modal-title"><div className="clubs-modal-header"><div><span className="eyebrow">Inteligencia Artificial</span><h2 id="video-modal-title">Subir video del partido</h2><p>Sube la grabación vs {videoMatch.rival} para generar un informe táctico automático.</p></div><button type="button" className="clubs-modal-close" onClick={closeVideoModal} aria-label="Cerrar modal">×</button></div><div className="match-form">
+      {isVideoModalOpen && videoMatch && <div className="clubs-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeVideoModal() }}><section className="clubs-modal match-modal" role="dialog" aria-modal="true" aria-labelledby="video-modal-title"><div className="clubs-modal-header"><div><span className="eyebrow">Inteligencia Artificial</span><h2 id="video-modal-title">Subir video del partido</h2><p>Sube la grabación vs {videoMatch.rival} para generar clips, métricas y evidencia audiovisual del partido.</p></div><button type="button" className="clubs-modal-close" onClick={closeVideoModal} aria-label="Cerrar modal">×</button></div><div className="match-form">
         {!videoStatus || videoStatus.analisis_estado === 'SIN_VIDEO' ? (
           <form onSubmit={submitVideoUpload}>
             <label className="clubs-form-group match-field-full">Archivo de video (MP4/MOV, Max 500MB) <span>*</span>
@@ -494,32 +616,40 @@ function MatchesPage() {
         ) : reportData ? (
           <div className="match-detail-grid" style={{ gap: '1.5rem', padding: '0 1.5rem 1.5rem', maxHeight: '75vh', overflowY: 'auto' }} id="print-area">
             
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '1rem' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{teamById.get(teamFilter)?.nombre || teamName(videoMatch) || 'Equipo Local'} vs. {videoMatch?.rival || 'Rival'}</h2>
-                <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>Generado: {formatDateTime(reportData.creado_en)}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.5rem', color: 'var(--color-primary)' }}>{teamById.get(teamFilter)?.nombre || teamName(videoMatch) || 'Equipo Local'} vs. {videoMatch?.rival || 'Rival'}</h2>
+                  <p style={{ margin: '0.25rem 0 0', color: 'var(--color-text-secondary)' }}>Scouting generado automáticamente a partir del video y estadísticas del partido.</p>
+                </div>
+                <span style={{ padding: '0.35rem 0.85rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 600, background: reportData.analisis_estado === 'COMPLETADO' ? 'var(--color-success)' : 'var(--color-bg-secondary)', color: reportData.analisis_estado === 'COMPLETADO' ? '#fff' : 'var(--color-text)' }}>
+                  {reportData.analisis_estado === 'COMPLETADO' ? 'Completado' : reportData.analisis_estado}
+                </span>
               </div>
-              <span style={{ padding: '0.25rem 0.75rem', borderRadius: '1rem', fontSize: '0.85rem', fontWeight: 600, background: reportData.analisis_estado === 'COMPLETADO' ? 'var(--color-success)' : 'var(--color-border)', color: reportData.analisis_estado === 'COMPLETADO' ? '#fff' : 'var(--color-text)' }}>
-                {reportData.analisis_estado === 'COMPLETADO' ? 'Completado' : reportData.analisis_estado}
-              </span>
+              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Fecha de generación: {formatDateTime(reportData.creado_en)}</span>
             </div>
             
             {/* B. Resumen táctico */}
-            <div style={{ padding: '1.25rem', background: 'var(--color-bg-secondary)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
-              <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--color-primary)' }}>Resumen táctico</h3>
-              <p style={{ margin: 0, lineHeight: 1.5 }}>{reportData.metricas_json?.resumen_tactico || reportData.resumen || 'Sin resumen táctico disponible.'}</p>
+            <div style={{ padding: '1.5rem', background: 'var(--color-bg-secondary)', borderRadius: '12px', border: '1px solid var(--color-border)', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <span style={{ background: 'var(--color-primary)', color: '#fff', padding: '0.25rem 0.75rem', borderRadius: '1rem', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Lectura táctica IA</span>
+              </div>
+              <p style={{ margin: 0, lineHeight: 1.6, fontSize: '1rem', color: 'var(--color-text)' }}>{reportData.metricas_json?.resumen_tactico || reportData.resumen || 'Sin resumen táctico disponible.'}</p>
             </div>
 
             {/* C. Top rendimiento */}
-            <div>
-              <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--color-primary)' }}>Top Rendimiento</h3>
+            <div className="print-section" style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '1.25rem', marginBottom: '1rem', color: 'var(--color-text)' }}>Top Rendimiento</h3>
               {reportData.metricas_json?.top_rendimiento?.length > 0 ? (
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
                   {reportData.metricas_json.top_rendimiento.map((top, idx) => (
-                    <div key={idx} style={{ flex: '1 1 200px', padding: '1rem', background: '#fff', borderRadius: '8px', border: '1px solid var(--color-border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                      <p style={{ margin: '0 0 0.25rem', fontSize: '0.85rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{top.posicion}</p>
-                      <p style={{ margin: '0 0 0.5rem', fontWeight: 700, fontSize: '1rem' }}>{top.nombre}</p>
-                      <span style={{ fontSize: '0.85rem', color: 'var(--color-success)', background: 'rgba(16, 185, 129, 0.1)', padding: '0.15rem 0.5rem', borderRadius: '4px' }}>{top.motivo}</span>
+                    <div key={idx} className="print-card" style={{ padding: '1.25rem', background: '#fff', borderRadius: '12px', border: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '0.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px' }}>{top.posicion}</span>
+                        {top.valoracion && <span style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: '1.1rem' }}>{top.valoracion}</span>}
+                      </div>
+                      <h4 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--color-text)' }}>{top.nombre}</h4>
+                      <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-success)', background: 'rgba(16, 185, 129, 0.1)', padding: '0.4rem 0.6rem', borderRadius: '6px', lineHeight: 1.4 }}>{top.motivo}</p>
                     </div>
                   ))}
                 </div>
@@ -528,38 +658,79 @@ function MatchesPage() {
               )}
             </div>
 
+            {/* F. Heatmap */}
+            <div className="print-section" style={{ marginBottom: '1.5rem', pageBreakInside: 'avoid' }}>
+              <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'var(--color-text)' }}>Zonas de mayor participación</h3>
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.95rem', marginBottom: '0.25rem', lineHeight: 1.4 }}>Este gráfico muestra en qué partes de la cancha el equipo tuvo más actividad durante el partido.</p>
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.95rem', marginBottom: '0.25rem', lineHeight: 1.4 }}>Mientras más fuerte se ve el color, más participación hubo en esa zona.</p>
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.95rem', marginBottom: '1.5rem', fontStyle: 'italic' }}>Sirve para saber si el equipo jugó más en defensa, mediocampo o ataque.</p>
+              
+              {reportData.metricas_json?.heatmap_url ? (
+                <div className="print-heatmap" style={{ background: '#fff', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--color-border)' }}>
+                  <img 
+                    src={`${getFullUrl(reportData.metricas_json.heatmap_url)}?t=${Date.now()}`} 
+                    alt="Zonas de mayor participación" 
+                    style={{ maxWidth: '100%', width: '100%', height: 'auto', borderRadius: '8px', display: 'block', margin: '0 auto 1.5rem', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }} 
+                    onLoad={() => setIsHeatmapLoaded(true)} 
+                    onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; setIsHeatmapLoaded(true); }} 
+                  />
+                  <p style={{ display: 'none', color: 'var(--color-text-secondary)', fontStyle: 'italic', margin: 0 }}>No se pudieron cargar las zonas de participación.</p>
+                  
+                  <div style={{ background: 'var(--color-bg-secondary)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                    <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--color-text)' }}><strong>Interpretación:</strong> revisa las zonas más marcadas para identificar dónde se concentró el juego.</p>
+                  </div>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: '16px', height: '16px', borderRadius: '4px', background: 'rgba(0,0,255,0.4)' }}></div>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>poca participación</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: '16px', height: '16px', borderRadius: '4px', background: 'rgba(0,255,0,0.6)' }}></div>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>participación normal</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: '16px', height: '16px', borderRadius: '4px', background: 'rgba(255,0,0,0.8)' }}></div>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>mucha participación</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background: 'var(--color-bg-secondary)', padding: '2rem', borderRadius: '12px', textAlign: 'center', border: '1px dashed var(--color-border)' }}>
+                  <p style={{ color: 'var(--color-text-secondary)', margin: 0, fontSize: '1rem' }}>Todavía no hay zonas de participación generadas para este partido.</p>
+                </div>
+              )}
+            </div>
+
             {/* D. Métricas por jugador */}
-            <div>
-              <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--color-primary)' }}>Métricas por Jugador</h3>
+            <div className="print-section" style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '1.25rem', marginBottom: '1rem', color: 'var(--color-text)' }}>Métricas por Jugador</h3>
               {reportData.metricas_json?.metricas_jugadores?.length > 0 ? (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                <div style={{ overflowX: 'auto', background: '#fff', borderRadius: '12px', border: '1px solid var(--color-border)' }}>
+                  <table className="print-metrics-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                     <thead>
-                      <tr style={{ borderBottom: '2px solid var(--color-border)', textAlign: 'left' }}>
-                        <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-text-secondary)' }}>Jugador</th>
-                        <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-text-secondary)' }}>Posición</th>
-                        <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-text-secondary)' }}>G</th>
-                        <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-text-secondary)' }}>A</th>
-                        <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-text-secondary)' }}>TA/TR</th>
-                        <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-text-secondary)' }}>Valoración</th>
-                        <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-text-secondary)' }}>Perfil / Compatibilidad</th>
-                        <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-text-secondary)' }}>Observación</th>
+                      <tr style={{ background: 'var(--color-bg-secondary)', borderBottom: '2px solid var(--color-border)', textAlign: 'left' }}>
+                        <th style={{ padding: '1rem', color: 'var(--color-text)', fontWeight: 600, whiteSpace: 'nowrap' }}>Jugador</th>
+                        <th style={{ padding: '1rem', color: 'var(--color-text)', fontWeight: 600, whiteSpace: 'nowrap' }}>Posición</th>
+                        <th style={{ padding: '1rem', color: 'var(--color-text)', fontWeight: 600 }}>Goles</th>
+                        <th style={{ padding: '1rem', color: 'var(--color-text)', fontWeight: 600 }}>Asistencias</th>
+                        <th style={{ padding: '1rem', color: 'var(--color-text)', fontWeight: 600 }}>Tarjetas</th>
+                        <th style={{ padding: '1rem', color: 'var(--color-text)', fontWeight: 600 }}>Valoración</th>
+                        <th style={{ padding: '1rem', color: 'var(--color-text)', fontWeight: 600, whiteSpace: 'nowrap' }}>Perfil sugerido</th>
+                        <th style={{ padding: '1rem', color: 'var(--color-text)', fontWeight: 600, minWidth: '200px' }}>Observación</th>
                       </tr>
                     </thead>
                     <tbody>
                       {reportData.metricas_json.metricas_jugadores.map((j, idx) => (
-                        <tr key={j.jugador_id || idx} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                          <td style={{ padding: '0.75rem 0.5rem', fontWeight: 500 }}>{j.nombre_completo}</td>
-                          <td style={{ padding: '0.75rem 0.5rem' }}>{j.posicion}</td>
-                          <td style={{ padding: '0.75rem 0.5rem' }}>{j.goles}</td>
-                          <td style={{ padding: '0.75rem 0.5rem' }}>{j.asistencias}</td>
-                          <td style={{ padding: '0.75rem 0.5rem' }}>{j.tarjetas}</td>
-                          <td style={{ padding: '0.75rem 0.5rem', fontWeight: 600, color: j.valoracion > 7 ? 'var(--color-success)' : 'inherit' }}>{j.valoracion || 'Sin registro'}</td>
-                          <td style={{ padding: '0.75rem 0.5rem', fontSize: '0.8rem' }}>
-                            <div><strong>Sugerido:</strong> {j.perfil_sugerido}</div>
-                            <div style={{ color: 'var(--color-text-secondary)' }}>{j.compatibilidad}</div>
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem', fontSize: '0.85rem' }}>{j.observacion}</td>
+                        <tr key={j.jugador_id || idx} style={{ borderBottom: '1px solid var(--color-border)', transition: 'background 0.2s' }}>
+                          <td style={{ padding: '1rem', fontWeight: 600, color: 'var(--color-primary)', whiteSpace: 'nowrap' }}>{j.nombre_completo}</td>
+                          <td style={{ padding: '1rem', color: 'var(--color-text-secondary)' }}>{j.posicion}</td>
+                          <td style={{ padding: '1rem', textAlign: 'center' }}>{j.goles}</td>
+                          <td style={{ padding: '1rem', textAlign: 'center' }}>{j.asistencias}</td>
+                          <td style={{ padding: '1rem', textAlign: 'center' }}>{j.tarjetas}</td>
+                          <td style={{ padding: '1rem', textAlign: 'center', fontWeight: 700, color: j.valoracion > 7 ? 'var(--color-success)' : 'inherit' }}>{j.valoracion || '-'}</td>
+                          <td style={{ padding: '1rem', fontSize: '0.85rem' }}>{j.perfil_sugerido}</td>
+                          <td style={{ padding: '1rem', fontSize: '0.85rem', lineHeight: 1.4, color: 'var(--color-text-secondary)' }}>{j.observacion}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -584,30 +755,95 @@ function MatchesPage() {
               )}
             </div>
 
-            {/* F. Heatmap */}
+            {/* G. IA Video Scout Clips */}
             <div style={{ marginTop: '2rem', pageBreakInside: 'avoid' }}>
-              <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--color-primary)' }}>Mapa de Calor</h3>
-              <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', marginBottom: '1rem' }}>
-                Distribución aproximada de participación del equipo durante el partido.
-              </p>
-              {reportData.metricas_json?.heatmap_url ? (
-                <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--color-border)', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                  <img 
-                    src={`${getFullUrl(reportData.metricas_json.heatmap_url)}?t=${Date.now()}`} 
-                    alt="Mapa de calor del partido" 
-                    style={{ maxWidth: '100%', width: '100%', height: 'auto', borderRadius: '8px', display: 'block', margin: '0 auto', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }} 
-                    onLoad={() => setIsHeatmapLoaded(true)} 
-                    onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; setIsHeatmapLoaded(true); }} 
-                  />
-                  <p style={{ display: 'none', color: 'var(--color-text-secondary)', fontStyle: 'italic', margin: 0 }}>No se pudo cargar el mapa de calor.</p>
+              <div style={{ padding: '1.5rem', borderRadius: '12px', borderLeft: '4px solid var(--color-primary)', background: '#fff', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', marginBottom: '1.5rem' }}>
+                <h3 style={{ fontSize: '1.25rem', margin: '0 0 0.5rem 0', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  IA Video Scout Clips 
+                  <span style={{ fontSize: '0.75rem', background: 'var(--color-primary)', color: '#fff', padding: '0.25rem 0.75rem', borderRadius: '1rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Automatización audiovisual
+                  </span>
+                </h3>
+                <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.95rem', margin: 0, lineHeight: 1.5 }}>
+                  El sistema transforma el video completo en clips deportivos por jugador y jugada.
+                </p>
+              </div>
+              
+              {clipsError && <div className="clubs-alert clubs-alert-error" role="alert" style={{ marginBottom: '1rem' }}>{clipsError}</div>}
+              
+              <div className="no-print" style={{ background: 'var(--color-bg-secondary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-border)', marginBottom: '1.5rem' }}>
+                <h4 style={{ fontSize: '1rem', marginBottom: '1rem', marginTop: 0 }}>Nuevos eventos</h4>
+                {clipEvents.map((clip, index) => (
+                  <div key={index} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.5rem', alignItems: 'end', marginBottom: '1rem', background: '#fff', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--color-border)' }}>
+                    <label className="clubs-form-group" style={{ margin: 0 }}>
+                      Jugador
+                      <select value={clip.jugador_id} onChange={(e) => updateClipEvent(index, 'jugador_id', e.target.value)}>
+                        <option value="">Selecciona</option>
+                        {reportData.metricas_json?.metricas_jugadores?.map((j) => (
+                          <option key={j.jugador_id} value={j.jugador_id}>{j.nombre_completo}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="clubs-form-group" style={{ margin: 0 }}>
+                      Acción
+                      <select value={clip.tipo} onChange={(e) => updateClipEvent(index, 'tipo', e.target.value)}>
+                        {clipTypeOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                    </label>
+                    <label className="clubs-form-group" style={{ margin: 0 }}>
+                      Minuto
+                      <input type="number" min="0" value={clip.minuto} onChange={(e) => updateClipEvent(index, 'minuto', e.target.value)} placeholder="Ej. 12" />
+                    </label>
+                    <label className="clubs-form-group" style={{ gridColumn: 'span 2', margin: 0 }}>
+                      Descripción
+                      <input type="text" value={clip.descripcion} onChange={(e) => updateClipEvent(index, 'descripcion', e.target.value)} placeholder="Ej. Tiro cruzado" />
+                    </label>
+                    <label className="clubs-form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, paddingBottom: '0.5rem' }}>
+                      <input type="checkbox" checked={clip.enviar_padres} onChange={(e) => updateClipEvent(index, 'enviar_padres', e.target.checked)} />
+                      Compartir con padres
+                    </label>
+                    <button type="button" className="button-ghost is-danger" onClick={() => removeClipEvent(index)} style={{ padding: '0.5rem', height: 'fit-content', marginBottom: '0.2rem' }}>X</button>
+                  </div>
+                ))}
+                
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="button-ghost" onClick={addClipEvent}>+ Agregar evento</button>
+                  {clipEvents.length > 0 && (
+                    <button type="button" className="button-primary" onClick={generateVideoScoutClips} disabled={isGeneratingClips}>
+                      {isGeneratingClips ? 'Generando...' : 'Generar clips IA'}
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <p style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic', padding: '1rem', background: 'var(--color-bg-secondary)', borderRadius: '8px', textAlign: 'center' }}>El mapa de calor se generará al actualizar el informe.</p>
+              </div>
+
+              {/* Clips generados */}
+              {clipsData.length > 0 && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                    <h4 style={{ fontSize: '1rem', margin: 0 }}>Clips generados</h4>
+                    <button type="button" className="button-primary" onClick={shareVideoScoutClipsWithParents} disabled={isSharingClips || clipsData.length === 0}>
+                      {isSharingClips ? 'Compartiendo...' : 'Compartir clips con padres'}
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+                    {clipsData.map((clip, idx) => (
+                      <div key={idx} className="print-card" style={{ background: '#fff', borderRadius: '8px', border: '1px solid var(--color-border)', overflow: 'hidden' }}>
+                        <video className="no-print" controls style={{ width: '100%', display: 'block', background: '#000' }} src={getFullUrl(clip.clip_url)} />
+                        <div style={{ padding: '1rem' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-primary)', background: 'var(--color-bg-secondary)', padding: '0.25rem 0.5rem', borderRadius: '1rem', display: 'inline-block', marginBottom: '0.5rem' }}>{clip.tipo_label} - Min {clip.minuto}</span>
+                          <h5 style={{ margin: '0 0 0.25rem', fontSize: '1rem' }}>{clip.jugador_nombre}</h5>
+                          <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>{clip.descripcion || 'Sin descripción'}</p>
+                          {clip.enviar_padres && <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}><span>✓</span> Se compartirá con padres</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 
             {/* Acciones */}
-            <div className="clubs-form-actions" style={{ marginTop: '1.5rem', borderTop: '1px solid var(--color-border)', paddingTop: '1.5rem', flexWrap: 'wrap' }}>
+            <div className="clubs-form-actions no-print" style={{ marginTop: '1.5rem', borderTop: '1px solid var(--color-border)', paddingTop: '1.5rem', flexWrap: 'wrap' }}>
               <button type="button" className="button-ghost" onClick={() => setIsReportModalOpen(false)}>Cerrar informe</button>
               {reportData.video_url && (
                 <a href={getFullUrl(reportData.video_url)} target="_blank" rel="noreferrer" className="button-ghost" style={{ textDecoration: 'none' }}>Ver video subido</a>
@@ -619,20 +855,6 @@ function MatchesPage() {
                 {isSharing ? 'Compartiendo...' : 'Compartir con padres'}
               </button>
             </div>
-            
-            <style>
-              {`
-                @media print {
-                  body * { visibility: hidden; }
-                  .clubs-modal-backdrop { background: none; }
-                  .clubs-modal { box-shadow: none; border: none; max-width: 100% !important; width: 100% !important; }
-                  .clubs-modal-close, .clubs-form-actions { display: none !important; }
-                  #print-area, #print-area * { visibility: visible; overflow: visible !important; max-height: none !important; }
-                  #print-area { position: absolute; left: 0; top: 0; padding: 0 !important; }
-                  @page { margin: 1cm; }
-                }
-              `}
-            </style>
           </div>
         ) : (
           <div className="categories-empty"><span className="categories-empty-icon">!</span><strong>Informe no disponible</strong></div>

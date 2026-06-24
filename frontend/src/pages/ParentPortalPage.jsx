@@ -121,6 +121,13 @@ const requestErrorMessage = (error, fallback) => (
   firstMessage(error.response?.data) || fallback
 )
 
+const getFullUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  const baseUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://127.0.0.1:8000';
+  return `${baseUrl}${url}`;
+};
+
 function ParentPortalPage({ isDashboard = false }) {
   const [initialCache] = useState(() => readCache())
   const initialPlayerId = initialCache.selectedPlayerId
@@ -135,8 +142,10 @@ function ParentPortalPage({ isDashboard = false }) {
   const [payments, setPayments] = useState([])
   const [evolucion, setEvolucion] = useState([])
   const [estadisticas, setEstadisticas] = useState([])
+  const [playerClips, setPlayerClips] = useState([])
   const [isLoadingPayments, setIsLoadingPayments] = useState(false)
   const [isLoadingExtra, setIsLoadingExtra] = useState(false)
+  const [isLoadingClips, setIsLoadingClips] = useState(false)
   const [processingPayment, setProcessingPayment] = useState(null)
   const [confirmingPayment, setConfirmingPayment] = useState(null)
   const [paymentError, setPaymentError] = useState('')
@@ -169,6 +178,15 @@ function ParentPortalPage({ isDashboard = false }) {
     const loadedPayments = asList(data)
     setPayments(loadedPayments)
     return loadedPayments
+  }, [])
+
+  const loadPlayerClips = useCallback(async (selectedPlayerId) => {
+    try {
+      const { data } = await api.get(`/jugadores/${selectedPlayerId}/video-scout-clips/`)
+      setPlayerClips(data.clips || [])
+    } catch (e) {
+      setPlayerClips([])
+    }
   }, [])
 
   const queueOfflineAction = (callUp, type, reason = null) => {
@@ -409,11 +427,13 @@ function ParentPortalPage({ isDashboard = false }) {
     if (!playerId || !isOnline) {
       setEvolucion([])
       setEstadisticas([])
+      setPlayerClips([])
       return undefined
     }
 
     let isActive = true
     setIsLoadingExtra(true)
+    setIsLoadingClips(true)
 
     Promise.allSettled([
       api.get(`/jugadores/${playerId}/evolucion-fisica/ultimos-12/`),
@@ -427,8 +447,12 @@ function ParentPortalPage({ isDashboard = false }) {
       setIsLoadingExtra(false)
     })
 
+    loadPlayerClips(playerId).finally(() => {
+      if (isActive) setIsLoadingClips(false)
+    })
+
     return () => { isActive = false }
-  }, [playerId, isOnline])
+  }, [playerId, isOnline, loadPlayerClips])
 
   const eventById = useMemo(() => new Map(
     events.map((event) => [String(event.id), event]),
@@ -726,6 +750,51 @@ function ParentPortalPage({ isDashboard = false }) {
                 {canPay && <div className="parent-payment-actions"><button type="button" className="button-primary" onClick={() => initiatePayment(payment)} disabled={isBusy}>{isBusy ? 'Procesando...' : 'Pagar'}</button></div>}
               </article>
             })}
+          </div>
+        )}
+      </section>
+
+      <section className="parent-clips-section" style={{ marginTop: '2rem' }}>
+        <div className="categories-list-heading">
+          <div>
+            <h2>Resumen audiovisual IA</h2>
+            <p>Clips deportivos generados desde el video del partido.</p>
+          </div>
+        </div>
+        {isLoadingClips ? (
+          <div className="categories-empty"><span className="clubs-loader" /><strong>Cargando clips...</strong></div>
+        ) : !players.length ? (
+          <div className="categories-empty"><span className="categories-empty-icon">TS</span><strong>No hay jugadores vinculados</strong><p>Cuando exista un jugador asociado podrás consultar aquí sus clips.</p></div>
+        ) : playerClips.length === 0 ? (
+          <div className="categories-empty">
+            <span className="categories-empty-icon">🎥</span>
+            <strong>No hay clips disponibles todavía para este jugador.</strong>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            {Object.entries(
+              playerClips.reduce((acc, clip) => {
+                const key = clip.partido_nombre || 'Partido Desconocido';
+                if (!acc[key]) acc[key] = [];
+                acc[key].push(clip);
+                return acc;
+              }, {})
+            ).map(([partidoNombre, clips]) => (
+              <div key={partidoNombre}>
+                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>{partidoNombre}</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+                  {clips.map((clip, idx) => (
+                    <article className="card" key={idx} style={{ background: 'var(--panel)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                      <video controls style={{ width: '100%', display: 'block', background: '#000' }} src={getFullUrl(clip.clip_url)} />
+                      <div style={{ padding: '1rem' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)', background: 'var(--panel-soft)', padding: '0.25rem 0.5rem', borderRadius: '1rem', display: 'inline-block', marginBottom: '0.5rem' }}>{clip.tipo_label} - Min {clip.minuto}</span>
+                        {clip.mensaje_padre && <p style={{ margin: '0', fontSize: '0.85rem', color: 'var(--text)' }}>{clip.mensaje_padre}</p>}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </section>

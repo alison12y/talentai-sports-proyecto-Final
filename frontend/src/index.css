@@ -4206,3 +4206,77 @@ p {
   .parent-payment-card-top { flex-direction: column; }
   .parent-payment-actions { grid-template-columns: 1fr; }
 }
+
+/* --- IMPRESIÓN DEL REPORTE IA --- */
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  /* Ocultar elementos específicos */
+  .sidebar, .topbar, .clubs-modal-backdrop {
+    background: none !important;
+  }
+  
+  .clubs-modal {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    transform: none !important;
+  }
+
+  .clubs-modal-close, .clubs-form-actions, .no-print {
+    display: none !important;
+  }
+
+  #print-area, #print-area * {
+    visibility: visible;
+  }
+
+  #print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0 !important;
+    background: white;
+    color: black;
+  }
+
+  .print-heatmap img {
+    max-width: 100% !important;
+    max-height: 420px !important;
+    object-fit: contain !important;
+    page-break-inside: avoid;
+  }
+  
+  .print-card {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+  }
+
+  .print-section {
+    page-break-inside: avoid;
+  }
+
+  .print-metrics-table {
+    font-size: 0.75rem !important;
+    width: 100% !important;
+  }
+  
+  .print-metrics-table th, .print-metrics-table td {
+    padding: 0.4rem !important;
+  }
+}
